@@ -1,0 +1,7 @@
+openai==0.28
+fastapi==0.65.2
+gunicorn==20.1.0
+uvicorn
+python-dotenv==0.18.0
+requests
+groq
