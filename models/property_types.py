@@ -1,7 +1,6 @@
 #!/usr/bin/python
 from enum import Enum
 from typing import Optional
-
 from pydantic import BaseModel
 
 class request_body(BaseModel):
@@ -44,15 +43,12 @@ class PropertyType(str, Enum):
     hotel_apartment = "hotel_apartment"
     restraunt = 'restraunt'
 
-
 class ListingType(str, Enum):
     sale = 'sale'
     rent = 'rent'
     dubai_sale = 'dubai_sale'
     dubai_rent = 'dubai_rent'
     
-
-
 class ResidentialPropertyType(str, Enum):
     apartment = 'apartment'
     builder_floor = 'builder_floor'
@@ -72,7 +68,6 @@ class OfficeSpacePropertyType(str, Enum):
     office_space_sez = 'office_space_sez'
     co_working_space = 'co_working_space'
 
-
 class CommercialPropertyType(str, Enum):
     shop = 'shop'
     showroom = 'showroom'
@@ -80,7 +75,6 @@ class CommercialPropertyType(str, Enum):
     restraunt = 'restraunt'
     factory = 'factory'
     labour_camp = 'labour_camp'
-
 
 class LandPropertyType(str, Enum):
     land = 'land'
@@ -111,7 +105,6 @@ class BaseListingDataupdate(BaseModel):
     area: int
     area_unit: str
     amenities: Optional[str]
-
 
 class ResidentialListingData(BaseListingData):
     property_type: ResidentialPropertyType
@@ -148,7 +141,6 @@ class LandListingDataupdated(BaseListingDataupdate):
     property_type: LandPropertyType
     # plot_number: Optional[str]
 
-
 class OfficeSpaceListingData(BaseListingData):
     property_type: OfficeSpacePropertyType
     office_space_type: str
@@ -165,8 +157,6 @@ class OfficeSpaceListingDataupdated(BaseListingDataupdate):
     furnishing: str
     washroom_present: str
     parking: Optional[int]
-
-
 
 class CommercialListingData(BaseListingData):
     property_type: CommercialPropertyType

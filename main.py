@@ -5,6 +5,7 @@ import os
 import openai
 import re
 import ast
+import httpx
 import requests
 import json
 
@@ -21,23 +22,67 @@ from urllib.parse import urlparse
 from fastapi.responses import PlainTextResponse,HTMLResponse,JSONResponse
 from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
-from prompts import Lifestyle_index_prompt, Liveability_index_prompt, Connectivity_index_prompt, Education_and_health_prompt
-from models.property_types import (
-    CommercialListingDataupdated,
-    LandListingDataupdated,
-    OfficeSpaceListingDataupdated,
-    ResidentialListingDataupdated,
-    LandListingData,
-    OfficeSpaceListingData,
-    CommercialListingData,
-    PayingGuestListingData,
-    request_body
-)
+from locality_data_extract import DataExtractor
+
+from models.property_types import (CommercialListingDataupdated,
+                                    LandListingDataupdated,
+                                     OfficeSpaceListingDataupdated,
+                                      ResidentialListingDataupdated, 
+                                       LandListingData,
+                                        OfficeSpaceListingData,
+                                         CommercialListingData,
+                                          PayingGuestListingData,
+                                           request_body)
+
+from prompt.dotcom_project import (overview_prompt,
+                                    overview_prompt_less_data,
+                                     listing_table_prompt,
+                                      listing_table_prompt_2,
+                                       nearby_landmarks_prompt,
+                                        transaction_prompt,
+                                         why_invest,faq_prompt1,
+                                          faq_prompt2,
+                                           listing_table_prompt_plot)
+
+
+from prompt.indices import (Lifestyle_index_prompt,
+                     Liveability_index_prompt,
+                       Connectivity_index_prompt,
+                         Education_and_health_prompt)
+
+from prompt.locality import (market_overview_prompt,
+                              prompt_for_indices,
+                               prompt_for_locality,
+                                supply_demand_prompt)
+
+from prompt.canada_project import (canada_prompt,
+                                   Canada_description_prompt2)
+
+from prompt.dotcom_listing import Listing_description_prompt
+from prompt.dse_faq import DSE_FAQ_PROMPT
+
+
 
 app = FastAPI(
     title="Minite GPT3",
     description="Generates description for real estate listings from the listing parameters",
     version="2.0.0"
+)
+
+
+# Setup logging for info level
+info_handler = logging.FileHandler('indices.log')
+info_handler.setLevel(logging.INFO)
+info_formatter = logging.Formatter(
+    '%(asctime)s %(levelname)s %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+info_handler.setFormatter(info_formatter)
+
+# Add handler to root logger
+logging.basicConfig(
+    level=logging.INFO,
+    handlers=[info_handler]
 )
 
 origins = [
@@ -59,26 +104,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-class Item2(BaseModel):
-
-    ProjectName : str
-    PrimarySubLocation : str
-    PrimaryLocation : str
-    CountryName : str
-    CityName : str
-    LowCost : int
-    HighCost : int
-    ProjectStatusDesc : str
-    TowerCount : int
-    WOWFactor : str
-    ProjectClassName : str
-    ProjectMinSize : int
-    ProjectMaxSize : int
-    ProjectReras : str
-    UnitBHKOptions : str
-    UnitCatOptions : str
-    ProjectArea : str
-    TotalUnits: str
 
 class project_body(BaseModel):
     property_type: str #apartment, plot, commercial, studio_apartments, independent_floors, penthouse, villa ----------------------
@@ -128,7 +153,7 @@ class request_body1(BaseModel):
 # loading environment variables from .env file
 load_dotenv()
 
-# OPENAI_DEPLOYMENT_NAME = 'sqy-gpt-35-turbo'
+# OPENAI_DEPLOYMENT_NAME = 'sqy-gpt4o-mini'
 openai.api_type = "azure"
 openai.api_key = os.getenv('openai.api_key')
 openai.api_base = 'https://sqy-openai.openai.azure.com/'
@@ -146,15 +171,8 @@ def format_description(description):
     body (bullet points array) and last paragraph
     """
     description  =str(description)
-    description = description.replace("'","")
-    description = description.replace("?",". ")
-    description = description.replace(";"," ")
-    description = description.replace("Rs.","INR")
-    description = description.replace("sq.ft","sqft")
-    description = description.replace("sq.","sq")
-    description = description.replace("sqft.","sqft")
-    description = description.replace("sq.ft.","square feet")
-    
+    description = description.replace("*", "").replace("?", ". ").replace(";", " ").replace("Rs.", "INR").replace("sq.ft", "sqft").replace("sq.", "sq").replace("sqft.", "sqft").replace("sq.ft.", "square feet").replace("-", "").replace("#", "")
+
     sentences = list(map(str.strip, description.split('. ')[:-1]))
     sentences = [f'{sentence}.' for sentence in sentences]
     
@@ -164,12 +182,8 @@ def format_description(description):
         'last_paragraph': sentences[-1]
     }
     
-    print(formatted_description)
+    # print(formatted_description)
     return formatted_description
-
-
-command = "You are a Square Yards specialised content writer and designer who focuses on providing real-estate based information. Your job is to write descriptions for listing from the pointers provided. Make sure all the details mentioned have to be appended as it is or exactly same. If price is prvided, you should write price like that 50 lakh, 3.20 crore or 25 thousand in article you genrate. The description should be SEO friendly, interactive to user and should not have name of any real estate organisation. First few words of description is unique and the article should be useful for home buyers or tenants based on the described details. You also have to make sure that all the values given are used in description atleast once."
-command_dubai = "You are a Square Yards specialised content writer and designer who focuses on providing real-estate based information. Your job is to write a just 10 - 12 line of descriptions for listing from the pointers provided. Make sure all the details mentioned have to be appended as it is or exactly same. If price is prvided, you should write price like that 50 lakh, 3.20 crore or 25 thousand in article you genrate. The description should be SEO friendly, interactive to user and should not have name of any real estate organisation. First few words of description is unique and the article should be useful for home buyers or tenants based on the described details. You also have to make sure that all the values given are used in description atleast once."
 
 
 @app.get("/")
@@ -192,17 +206,17 @@ async def generate_payingguest_description(payingguest_listing_data: PayingGuest
 
     
     completion = openai.ChatCompletion.create(
-        deployment_id="sqy-gpt-35-turbo",
-        model="gpt-3.5-turbo",
+        deployment_id="sqy-gpt4o-mini",
+        model="sqy-gpt4o-mini",
         temperature = 1.3,
         messages=[
-            {"role": "system", "content": command},
+            {"role": "system", "content": Listing_description_prompt},
             {"role": "user", "content": str(req_body3)}
         ]
         )
 
-    get_content = dict(completion.choices[0].message)
-    result = (str(get_content['content']))     
+    get_content = completion.choices[0].message['content']
+    result = str(get_content)     
     final_result1= result.replace("\n",'')
     description = re.sub(r"[\([{})\]]", "", final_result1)
     
@@ -222,17 +236,17 @@ async def generate_apartment_des_finetune1(fine_tune_apartment: request_body, fo
         req_body3 = str(req_body2).replace("}",'')
 
         completion = openai.ChatCompletion.create(
-            deployment_id="sqy-gpt-35-turbo",
-            model="gpt-3.5-turbo",
+            deployment_id="sqy-gpt4o-mini",
+            model="sqy-gpt4o-mini",
             temperature = 1.3,
             messages=[
-                {"role": "system", "content": command },
+                {"role": "system", "content": Listing_description_prompt },
                 {"role": "user", "content": str(req_body3)}
             ]
             )
 
-        get_content = dict(completion.choices[0].message)
-        result = (str(get_content['content']))  
+        get_content = completion.choices[0].message['content']
+        result = str(get_content)  
 
         final_result1= result.replace("\n",'')
         description = re.sub(r"[\([{})\]]", "", final_result1)
@@ -257,8 +271,8 @@ async def land_description(land_listing_data: LandListingData, format: bool = Fa
         req_body3 = str(req_body2).replace("}",'')
 
         completion = openai.ChatCompletion.create(
-            deployment_id="sqy-gpt-35-turbo",
-            model="gpt-3.5-turbo",
+            deployment_id="sqy-gpt4o-mini",
+            model="sqy-gpt4o-mini",
             temperature = 1.3,
             messages=[
                 {"role": "system", "content": "You are a real-estate marketing creative. Your job is to write a good helpful details about localities of land or plot on pointers provided.Your main focus is on Price, If price is available then you should write price in words not in numbers. The content should be SEO-friendly should be engaging for the reader and should arouse their interest in browsing through the website. First line of every description should be unique. The article should be useful for home buyers and people looking to rent out properties in that area."},
@@ -266,8 +280,8 @@ async def land_description(land_listing_data: LandListingData, format: bool = Fa
             ]
             )
 
-        get_content = dict(completion.choices[0].message)
-        result = (str(get_content['content']))     
+        get_content = completion.choices[0].message['content']
+        result = str(get_content)     
         final_result1= result.replace("\n",'')
         description = re.sub(r"[\([{})\]]", "", final_result1)
     
@@ -292,17 +306,17 @@ async def office_space_description(office_space_data: OfficeSpaceListingData, fo
         req_body3 = str(req_body2).replace("}",'')
 
         completion = openai.ChatCompletion.create(
-            deployment_id="sqy-gpt-35-turbo",
-            model="gpt-3.5-turbo",
+            deployment_id="sqy-gpt4o-mini",
+            model="sqy-gpt4o-mini",
             temperature = 1.3,
             messages=[
-                {"role": "system", "content": command},
+                {"role": "system", "content": Listing_description_prompt},
                 {"role": "user", "content": str(req_body3)}
             ]
             )
         
-        get_content = dict(completion.choices[0].message)
-        result = (str(get_content['content']))     
+        get_content = completion.choices[0].message['content']
+        result = str(get_content)     
         final_result1= result.replace("\n",'')
 
         description = re.sub(r"[\([{})\]]", "", final_result1)
@@ -327,17 +341,17 @@ async def generate_land_description(commercial_listing_data: CommercialListingDa
         req_body3 = str(req_body2).replace("}",'')
        
         completion = openai.ChatCompletion.create(
-            deployment_id="sqy-gpt-35-turbo",
-            model="gpt-3.5-turbo",
+            deployment_id="sqy-gpt4o-mini",
+            model="sqy-gpt4o-mini",
             temperature = 1.3,
             messages=[
-                {"role": "system", "content": command},
+                {"role": "system", "content": Listing_description_prompt},
                 {"role": "user", "content": str(req_body3)}
             ]
             )
 
-        get_content = dict(completion.choices[0].message)
-        result = (str(get_content['content']))     
+        get_content = completion.choices[0].message['content']
+        result = str(get_content)     
         final_result1= result.replace("\n",'')
 
         description = re.sub(r"[\([{})\]]", "", final_result1)
@@ -364,18 +378,18 @@ async def generate_apartment_description_dubai(residential_listing_data: Residen
         req_body3 = str(req_body2).replace("}",'')
 
         completion = openai.ChatCompletion.create(
-            deployment_id="sqy-gpt-35-turbo",
-            model="gpt-3.5-turbo",
+            deployment_id="sqy-gpt4o-mini",
+            model="sqy-gpt4o-mini",
             temperature = 1.3, 
             messages=[
-                {"role": "system", "content": command},
+                {"role": "system", "content": Listing_description_prompt},
                 {"role": "user", "content": str(req_body3)}
             ]
             )
 
 
-        get_content = dict(completion.choices[0].message)
-        result = (str(get_content['content']))     
+        get_content = completion.choices[0].message['content']
+        result = str(get_content)     
         final_result1= result.replace("\n",'')
 
         description = re.sub(r"[\([{})\]]", "", final_result1)
@@ -401,17 +415,17 @@ async def land_description_dubai(land_listing_data: LandListingDataupdated, form
        
         completion = openai.ChatCompletion.create(
             deployment_id="sqy-gpt-35-turbo",
-            model="gpt-3.5-turbo",
+            model="sqy-gpt4o-mini",
             temperature = 1.3,
             messages=[
-                {"role": "system", "content": command},
+                {"role": "system", "content": Listing_description_prompt},
                 {"role": "user", "content": str(req_body3)}
             ]
             )
 
 
-        get_content = dict(completion.choices[0].message)
-        result = (str(get_content['content']))     
+        get_content = completion.choices[0].message['content']
+        result = str(get_content)     
         final_result1= result.replace("\n",'')
 
         description = re.sub(r"[\([{})\]]", "", final_result1)
@@ -436,17 +450,17 @@ async def office_space_description_dubai(office_space_data: OfficeSpaceListingDa
         req_body3 = str(req_body2).replace("}",'')
 
         completion = openai.ChatCompletion.create(
-            deployment_id="sqy-gpt-35-turbo",
-            model="gpt-3.5-turbo",
+            deployment_id="sqy-gpt4o-mini",
+            model="sqy-gpt4o-mini",
             temperature = 1.3,
             messages=[
-                {"role": "system", "content": command},
+                {"role": "system", "content": Listing_description_prompt},
                 {"role": "user", "content": str(req_body3)}
             ]
             )
 
-        get_content = dict(completion.choices[0].message)
-        result = (str(get_content['content']))     
+        get_content = completion.choices[0].message['content']
+        result = str(get_content)     
         final_result1= result.replace("\n",'')
 
         description = re.sub(r"[\([{})\]]", "", final_result1)
@@ -471,17 +485,17 @@ async def generate_land_description_dubai(commercial_listing_data: CommercialLis
         req_body3 = str(req_body2).replace("}",'')
 
         completion = openai.ChatCompletion.create(
-            deployment_id="sqy-gpt-35-turbo",
-            model="gpt-3.5-turbo",
+            deployment_id="sqy-gpt4o-mini",
+            model="sqy-gpt4o-mini",
             temperature = 1.3,
             messages=[
-                {"role": "system", "content": command},
+                {"role": "system", "content": Listing_description_prompt},
                 {"role": "user", "content": str(req_body3)}
             ]
             )
 
-        get_content = dict(completion.choices[0].message)
-        result = (str(get_content['content']))     
+        get_content = completion.choices[0].message['content']
+        result = str(get_content)     
         final_result1= result.replace("\n",'')
 
         description = re.sub(r"[\([{})\]]", "", final_result1)
@@ -516,8 +530,8 @@ async def dubai_agency_description(data: request_body1):
 
     
     completion = openai.ChatCompletion.create(
-        deployment_id="sqy-gpt-35-turbo",
-        model="gpt-3.5-turbo",
+        deployment_id="sqy-gpt4o-mini",
+        model="sqy-gpt4o-mini",
         temperature = 1.3,
         messages=[
             {"role": "system", "content": "You are dubai agent,i will gave you two things agency name and location on the basis of these two things you will genrate ae description like this (Providential Properties Management is a full-service real estate company that specializes in the management and sale of residential and commercial properties in the UAE. We offer our clients a wide range of services, including property management, marketing, and leasing. We also have a team of experienced professionals who are dedicated to providing the best possible service to our clients. We take pride in our reputation for providing quality real estate services at a fair price.)"},
@@ -525,8 +539,8 @@ async def dubai_agency_description(data: request_body1):
         ]
         )
 
-    get_content = dict(completion.choices[0].message)
-    result = (str(get_content['content']))     
+    get_content = completion.choices[0].message['content']
+    result = str(get_content)     
     final_result1= result.replace("\n",'')
     description = re.sub(r"[\([{})\]]", "", final_result1)
     
@@ -537,7 +551,7 @@ async def dubai_agency_description(data: request_body1):
 sample_data = {
     "overview": "Godrej Horizon Wadala offers a perfect blend of comfort and luxury in apartment living. Situated in the vibrant neighborhood of Wadala, Mumbai, this project features 470 units with spacious 1 BHK, 2 BHK, and 3 BHK apartments ranging from 435 sq. ft. to 1000 sq. ft. The project was launched in May 2020 and spans across 5 acres of lush green landscape. With best-in-class resorts, proposed IT park, and the International Airport in close proximity, Godrej Horizon Wadala ensures you have everything you need right at your doorstep.",
     "key_amenities": "Experience a host of essential amenities at Godrej Horizon Wadala, including Rain Water Harvesting, Sewage Treatment Plant, and a serene Central Green area, creating a harmonious and eco-friendly environment for the residents.",
-    "key_features": "The project incorporates state-of-the-art technology with features like Intelligent Master Command for all Smart Appliances, Intelligent Biometric Security, Smart Lighting & Cooling, 24X7 Remote Connectivity, and Fibre Optic Infrastructure, providing you with the convenience and safety you deserve.",
+    "key_features": "The project incorporates state-of-the-art technology with features like Intelligent Master command for all Smart Appliances, Intelligent Biometric Security, Smart Lighting & Cooling, 24X7 Remote Connectivity, and Fibre Optic Infrastructure, providing you with the convenience and safety you deserve.",
     "floor_plan": "The thoughtfully designed floor plan includes 470 units of 1 BHK, 2 BHK, and 3 BHK apartments sprawled across 5 acres, ensuring ample space and comfortable living for all residents. The apartments range from 435 sq. ft. to 1000 sq. ft., catering to various family sizes and preferences.",
     "properties_for_sale": "For those seeking to own their dream home, Godrej Horizon Wadala offers exquisite properties for sale. Choose from a variety of options, including 1 BHK, 2 BHK, and 3 BHK apartments ranging from 435 sq. ft. to 1000 sq. ft., and make the perfect investment for your future.",
     "properties_for_rent": "If you prefer a more flexible living arrangement, the property also has apartments available for rent. Experience the comforts of home with the flexibility of renting, as the project offers 1 BHK, 2 BHK, and 3 BHK apartments ranging from 435 sq. ft. to 1000 sq. ft.",
@@ -549,7 +563,7 @@ sample_data = {
     "why_invest": "Invest in premium office spaces tailored to meet your business needs on a 1 lac sq. ft. property."
 }
 
-command_page_conntent = f'i want long descriptions like i will give you as a sample and i want response in this format same as it is{sample_data},so using my data which i provide to you please genrate description in details like this {sample_data} without any syntax error Please provide a JSON response with the enclosed in double quotes:'
+page_conntent = f'i want long descriptions like i will give you as a sample and i want response in this format same as it is{sample_data},so using my data which i provide to you please genrate description in details like this {sample_data} without any syntax error Please provide a JSON response with the enclosed in double quotes:'
 
 @app.post("/page-content")
 async def create_page_content1(data: project_body):
@@ -564,7 +578,7 @@ async def create_page_content1(data: project_body):
         "location": "Wadala,Mumbai",
         "overview": "launched on May 2020, 470 units, 5 Acres, 1 BHK-2 BHK-3 BHK, 435 Sq. Ft. to 1000 Sq. Ft., best-in-class resorts, proposed IT park International Airport,you stay close to everything you need",
         "key_amenities": "Rain Water Harvesting, Sewage Treatment Plant, Normal Park / Central Green",
-        "key_features": "Intelligent Master Command for all Smart Appliances, Intelligent Biometric Security, Smart Lighting & Cooling, 24X7 Remote Connectivity, Fibre Optic Infrastructure and much more",
+        "key_features": "Intelligent Master command for all Smart Appliances, Intelligent Biometric Security, Smart Lighting & Cooling, 24X7 Remote Connectivity, Fibre Optic Infrastructure and much more",
         "floor_plan": "470 units, 5 Acres, 1 BHK-2 BHK-3 BHK, 435 Sq. Ft. to 1000 Sq. Ft.",
         "plot_detail": "1200 sq. ft. , 1500 sq. ft. and 2400 sq. ft",
         "project_detail": "1600 sqft to 1700 sqft",
@@ -587,40 +601,40 @@ async def create_page_content1(data: project_body):
 
     try:
         completion = openai.ChatCompletion.create(
-            deployment_id="sqy-gpt-35-turbo",
-            model="gpt-3.5-turbo",
+            deployment_id="sqy-gpt4o-mini",
+            model="sqy-gpt4o-mini",
             temperature=1.3,
             messages=[
-                {"role": "system", "content": command_page_conntent},
+                {"role": "system", "content": page_conntent},
                 {"role": "user", "content": str(req_body3)}
             ]
         )
-        get_content = dict(completion.choices[0].message)
+        get_content = completion.choices[0].message['content']
         result = get_content['content']
 
     except Exception as e:    
         return {"error": f"Error in OpenAI API call: {str(e)}"}
    
     data = eval(result)
-    print(data)
+    # print(data)
     if data["overview"]:
 
         overview = str(data["overview"]).replace("'","")
-        print("if working of overview")
+        # print("if working of overview")
 
     else:
         try:
-            print("else working of overview")
+            # print("else working of overview")
             completion = openai.ChatCompletion.create(
-                deployment_id="sqy-gpt-35-turbo",
-                model="gpt-3.5-turbo",
+                deployment_id="sqy-gpt4o-mini",
+                model="sqy-gpt4o-mini",
                 temperature = 1.3,
                 messages=[
                     {"role": "system", "content": "i will gave you data, on the basis of data, genrate 7 to 8 line of description about only overview of given data of project"},
                     {"role": "user", "content": str(req_body3)}
                 ]
                 )
-            get_content = dict(completion.choices[0].message)
+            get_content = completion.choices[0].message['content']
             # (get_content)
             result = str(get_content['content'])
 
@@ -633,21 +647,21 @@ async def create_page_content1(data: project_body):
         #  key_amenities = key_amenities.replace(";","")
         #  key_amenities = key_amenities.replace("?","")
         #  key_amenities = re.sub(r"[\([{})\]]","", key_amenities)
-         print("if working of key_amenities")
+        #  print("if working of key_amenities")
     
     else:
         try:
-            print("else working of key amenities")
+            # print("else working of key amenities")
             completion = openai.ChatCompletion.create(
-                deployment_id="sqy-gpt-35-turbo",
-                model="gpt-3.5-turbo",
+                deployment_id="sqy-gpt4o-mini",
+                model="sqy-gpt4o-mini",
                 temperature = 1.3,
                 messages=[
                     {"role": "system", "content": "i will gave you data, on the basis of data, genrate a 5 to 6 line of description about only key amenities of given data of project"},
                     {"role": "user", "content": str(req_body3)}
                 ]
                 )
-            get_content = dict(completion.choices[0].message)
+            get_content = completion.choices[0].message['content']
             # (get_content)
             result = str(get_content['content'])
             key_amenities = str(result).replace("'","")
@@ -663,20 +677,20 @@ async def create_page_content1(data: project_body):
         # key_features = key_features.replace("?","")
         # key_features = re.sub(r"[\([{})\]]","", key_features)
         
-        print("if working of key features")
+        # print("if working of key features")
     else:
         try:
-            print("else working of key features")
+            # print("else working of key features")
             completion = openai.ChatCompletion.create(
-                deployment_id="sqy-gpt-35-turbo",
-                model="gpt-3.5-turbo",
+                deployment_id="sqy-gpt4o-mini",
+                model="sqy-gpt4o-mini",
                 temperature = 1.3,
                 messages=[
                     {"role": "system", "content": "i will gave you data, on the basis of data, genrate 6 to 7 line of description about only key features of given data of project"},
                     {"role": "user", "content": str(req_body3)}
                 ]
                 )
-            get_content = dict(completion.choices[0].message)
+            get_content = completion.choices[0].message['content']
             # (get_content)
             result = str(get_content['content'])
             key_features = str(result).replace("'","")
@@ -690,19 +704,19 @@ async def create_page_content1(data: project_body):
         # floor_plan = floor_plan.replace(";","")
         # floor_plan = floor_plan.replace("?","")
         # floor_plan = re.sub(r"[\([{})\]]","", floor_plan)
-        print("if working of floor plan")
+        # print("if working of floor plan")
     else:
         try:
             completion = openai.ChatCompletion.create(
-                deployment_id="sqy-gpt-35-turbo",
-                model="gpt-3.5-turbo",
+                deployment_id="sqy-gpt4o-mini",
+                model="sqy-gpt4o-mini",
                 temperature = 1.3,
                 messages=[
                     {"role": "system", "content": "i will gave you data, on the basis of data, genrate a 6 to 7 line description about only floor plan of given data of project"},
                     {"role": "user", "content": str(req_body3)}
                 ]
                 )
-            get_content = dict(completion.choices[0].message)
+            get_content = completion.choices[0].message['content']
             # (get_content)
             result = str(get_content['content'])
             floor_plan = str(result).replace("'","")
@@ -715,20 +729,20 @@ async def create_page_content1(data: project_body):
         # properties_for_sale = properties_for_sale.replace(";","")
         # properties_for_sale = properties_for_sale.replace("?","")
         # properties_for_sale = re.sub(r"[\([{})\]]","", properties_for_sale)
-        print("if working of properties for sale")
+        # print("if working of properties for sale")
     else:
         try:
             # else:
             completion = openai.ChatCompletion.create(
-                deployment_id="sqy-gpt-35-turbo",
-                model="gpt-3.5-turbo",
+                deployment_id="sqy-gpt4o-mini",
+                model="sqy-gpt4o-mini",
                 temperature = 1.3,
                 messages=[
                     {"role": "system", "content": "i will gave you data, on the basis of data, genrate 6 to 7 line description about only properties for sale of given data of project"},
                     {"role": "user", "content": str(req_body3)}
                 ]
                 )
-            get_content = dict(completion.choices[0].message)
+            get_content = completion.choices[0].message['content']
             # (get_content)
             result = str(get_content['content'])
             properties_for_sale = str(result).replace("'","")
@@ -741,20 +755,20 @@ async def create_page_content1(data: project_body):
         # properties_for_rent = properties_for_rent.replace(";","")
         # properties_for_rent = properties_for_rent.replace("?","")
         # properties_for_rent = re.sub(r"[\([{})\]]","", properties_for_rent)
-        print("if working of properites for rent")
+        # print("if working of properites for rent")
     else:
         try:
-            print("else working of properites for rent")
+            # print("else working of properites for rent")
             completion = openai.ChatCompletion.create(
-                deployment_id="sqy-gpt-35-turbo",
-                model="gpt-3.5-turbo",
+                deployment_id="sqy-gpt4o-mini",
+                model="sqy-gpt4o-mini",
                 temperature = 1.3,
                 messages=[
                     {"role": "system", "content": "i will gave you data, on the basis of data, genrate 6 to 7 line description about only properties for rent of given data of project"},
                     {"role": "user", "content": str(req_body3)}
                 ]
                 )
-            get_content = dict(completion.choices[0].message)
+            get_content = completion.choices[0].message['content']
             # (get_content)
             result = str(get_content['content'])
             properties_for_rent = str(result).replace("'","")  
@@ -767,20 +781,20 @@ async def create_page_content1(data: project_body):
         # project_location_and_advantages = project_location_and_advantages.replace(";","")
         # project_location_and_advantages = project_location_and_advantages.replace("?","")
         # project_location_and_advantages = re.sub(r"[\([{})\]]","", project_location_and_advantages)
-        print("if working of project location and advantages")
+        # print("if working of project location and advantages")
     else:
         try:          
-            print("else working of project location and advantages")
+            # print("else working of project location and advantages")
             completion = openai.ChatCompletion.create(
-                deployment_id="sqy-gpt-35-turbo",
-                model="gpt-3.5-turbo",
+                deployment_id="sqy-gpt4o-mini",
+                model="sqy-gpt4o-mini",
                 temperature = 1.3,
                 messages=[
                     {"role": "system", "content": "i will gave you data, on the basis of data, genrate 6 to 7 line description about only project location and advantages of given data of project"},
                     {"role": "user", "content": str(req_body3)}
                 ]
                 )
-            get_content = dict(completion.choices[0].message)
+            get_content = completion.choices[0].message['content']
             # (get_content)
             result = str(get_content['content'])
             project_location_and_advantages = str(result).replace("'","")
@@ -797,15 +811,15 @@ async def create_page_content1(data: project_body):
         print("if working of locality snapshot")
     else:
             completion = openai.ChatCompletion.create(
-                deployment_id="sqy-gpt-35-turbo",
-                model="gpt-3.5-turbo",
+                deployment_id="sqy-gpt4o-mini",
+                model="sqy-gpt4o-mini",
                 temperature = 1.3,
                 messages=[
                     {"role": "system", "content": "i will gave you data, on the basis of data, genrate 6 to 7 line description about only project locality snapshot of given data of project"},
                     {"role": "user", "content": str(req_body3)}
                 ]
                 )
-            get_content = dict(completion.choices[0].message)
+            get_content = completion.choices[0].message['content']
             # (get_content)
             result = str(get_content['content'])
             locality_snapshot = str(result).replace("'","")
@@ -818,20 +832,20 @@ async def create_page_content1(data: project_body):
         # launch_date = launch_date.replace("?","")
         # launch_date = re.sub(r"[\([{})\]]","", launch_date)
         
-        print("if working of launch date")
+        # print("if working of launch date")
     else:
         try:
-            print("else working of launch date")
+            # print("else working of launch date")
             completion = openai.ChatCompletion.create(
-                deployment_id="sqy-gpt-35-turbo",
-                model="gpt-3.5-turbo",
+                deployment_id="sqy-gpt4o-mini",
+                model="sqy-gpt4o-mini",
                 temperature = 1.3,
                 messages=[
                     {"role": "system", "content": "if launch date is available then genrate 4 to 5 line description about launch date otherwise give blank response."},
                     {"role": "user", "content": str(req_body3)}
                 ]
                 )
-            get_content = dict(completion.choices[0].message)
+            get_content = completion.choices[0].message['content']
             # (get_content)
             result = str(get_content['content'])
             launch_date = str(result).replace("'","")
@@ -845,20 +859,20 @@ async def create_page_content1(data: project_body):
         # avg_resale_price = avg_resale_price.replace(";","")
         # avg_resale_price = avg_resale_price.replace("?","")
         # avg_resale_price = re.sub(r"[\([{})\]]","", avg_resale_price)
-        print("if working of avg resale price")
+        # print("if working of avg resale price")
     else:
         try:
-            print("else working of avg resale price")
+            # print("else working of avg resale price")
             completion = openai.ChatCompletion.create(
-                deployment_id="sqy-gpt-35-turbo",
-                model="gpt-3.5-turbo",
+                deployment_id="sqy-gpt4o-mini",
+                model="sqy-gpt4o-mini",
                 temperature = 1.3,
                 messages=[
                     {"role": "system", "content": "i will gave you data, on the basis of data, genrate 5 to 6 line description about only average resale price of given data of project"},
                     {"role": "user", "content": str(req_body3)}
                 ]
                 )
-            get_content = dict(completion.choices[0].message)
+            get_content = completion.choices[0].message['content']
             # (get_content)
             result = str(get_content['content'])
             avg_resale_price = str(result).replace("'","")
@@ -872,21 +886,21 @@ async def create_page_content1(data: project_body):
         # property_key_specification = property_key_specification.replace(";","")
         # property_key_specification = property_key_specification.replace("?","")
         # property_key_specification = re.sub(r"[\([{})\]]","", property_key_specification)
-        print("if working of property key specification")
+        # print("if working of property key specification")
 
     else:
         try:
-            print("else working of property key specification")
+            # print("else working of property key specification")
             completion = openai.ChatCompletion.create(
-                deployment_id="sqy-gpt-35-turbo",
-                model="gpt-3.5-turbo",
+                deployment_id="sqy-gpt4o-mini",
+                model="sqy-gpt4o-mini",
                 temperature = 1.3,
                 messages=[
                     {"role": "system", "content": "i will gave you data, on the basis of data, genrate 6 to 7 line description about only property key specification of given data of project"},
                     {"role": "user", "content": str(req_body3)}
                 ]
                 )
-            get_content = dict(completion.choices[0].message)
+            get_content = completion.choices[0].message['content']
             # (get_content)
             result = str(get_content['content'])
             property_key_specification = str(result).replace("'","")
@@ -901,20 +915,20 @@ async def create_page_content1(data: project_body):
         # why_invest = why_invest.replace("?","")
         # why_invest = re.sub(r"[\([{})\]]","", why_invest)
 
-        print("if working of why_invest")
+        # print("if working of why_invest")
     else:
         try:
-            print("else working of why_invest")
+            # print("else working of why_invest")
             completion = openai.ChatCompletion.create(
-                deployment_id="sqy-gpt-35-turbo",
-                model="gpt-3.5-turbo",
+                deployment_id="sqy-gpt4o-mini",
+                model="sqy-gpt4o-mini",
                 temperature = 1.3,
                 messages=[
                     {"role": "system", "content": "i will gave you data, on the basis of data, genrate 6 to 7 line description about only Why invest in this project"},
                     {"role": "user", "content": str(req_body3)}
                 ]
                 )
-            get_content = dict(completion.choices[0].message)
+            get_content = completion.choices[0].message['content']
             # (get_content)
             result = str(get_content['content'])
             why_invest = str(result).replace("'","")
@@ -968,8 +982,8 @@ Sample_question = {
     
 }
 
-# command = f'i want long descriptions like i will give you as a sample and i want response in this format same as it is{sample_data},so using  my data which i provide to you please genrate description in details like this {sample_data} without any syntax error and use double quotes insteaded of single.'
-command_faq = f"i will gave you data, using that data you will genrate only 7 to 10 FAQs. I want FAQs in this format same as it is in this sample data ({sample_data}) and these type of questions is include in the FAQs ({Sample_question}) but i want response format like this ({sample_data}). I want reponse without any syntax error.Please provide a JSON response with the enclosed in double quotes"
+# listing_prompt = f'i want long descriptions like i will give you as a sample and i want response in this format same as it is{sample_data},so using  my data which i provide to you please genrate description in details like this {sample_data} without any syntax error and use double quotes insteaded of single.'
+listing_prompt_faq = f"i will gave you data, using that data you will genrate only 7 to 10 FAQs. I want FAQs in this format same as it is in this sample data ({sample_data}) and these type of questions is include in the FAQs ({Sample_question}) but i want response format like this ({sample_data}). I want reponse without any syntax error.Please provide a JSON response with the enclosed in double quotes"
 
 @app.post("/project-FAQs")
 async def create_project_FAQs(data: project_faq):
@@ -983,16 +997,16 @@ async def create_project_FAQs(data: project_faq):
 
     try:
         completion = openai.ChatCompletion.create(
-            deployment_id="sqy-gpt-35-turbo",
-            model="gpt-3.5-turbo",
+            deployment_id="sqy-gpt4o-mini",
+            model="sqy-gpt4o-mini",
             temperature = 1.3,
             messages=[
-                {"role": "system", "content": command_faq},
+                {"role": "system", "content": listing_prompt_faq},
                 {"role": "user", "content": str(req_body3)}
             ]
             )
 
-        get_content = dict(completion.choices[0].message)
+        get_content = completion.choices[0].message['content']
         # (get_content)
         result = (get_content['content']) 
         # print(result)
@@ -1003,41 +1017,18 @@ async def create_project_FAQs(data: project_faq):
 
     try:
         data = eval(result)
-        print("try work")
+        # print("try work")
     except:
         # return {"data":result}
     
         # result = "{'key1': 'value1', 'key2': 'value2'}"
-        print("except work")
+        # print("except work")
         data = ast.literal_eval(result)
         return data
 
 
     return data
 
-
-ca_sample2 = """
-<div class='main chatGPT'> <div class='heading'><strong>Welcome to 140 Widdicombe Hill Blvd</strong></div> <div class='para'> <p>Located in the Willowridge-Martingrove-Richview neighbourhood in Toronto, this property offers a great opportunity for those looking to purchase a home in this area.</p> </div> <div class='info'> <strong>Here are some key details about this property:</strong> <ul> <li>There are currently 2 listings available for sale in 140 Widdicombe Hill Blvd, with a price of $730,000 each.</li> <li>The exterior finish of this building is concrete, providing a modern and durable look.</li> <li>Each unit in property comes with an owned locker, offering additional storage space for your belongings.</li> <li>The laundry facilities in 140 Widdicombe Hill Blvd are ensuite and located on the main level, providing convenience and privacy.</li> <li>Enjoy the terrace in 140 Widdicombe Hill Blvd, perfect for relaxing and enjoying the outdoor space.</li> <li>High-speed internet is available in this building, ensuring you stay connected at all times.</li> <li>140 Widdicombe Hill Blvd also features an underground garage, providing secure parking for residents.</li> <li>Building insurance is included in 140 Widdicombe Hill Blvd, giving you peace of mind.</li> </ul> </div> </div>"""
-
-ca_prompt2 = f"""
-#Output response should be in HTML-format.
-Generate real estate property descriptions for Canada without including any outside information. Follow strict instructions.
-
-Instructions:
-
-1.Do not include any information beyond the property description.
-2.Ensure the descriptions are SEO-friendly, utilizing relevant keywords naturally.
-3.Write the description in easy English.
-4.Present the description in a clear and engaging format, similar to the example provided with bullet points for key details.
-5.Avoid any reference to external sources or additional details beyond the property itself.
-6.To generate description only use provide key value data, don't add additionl details in description response.
-7.Do not include any concluding or call-to-action statements.
-
-
-Like this format example :- {ca_sample2}
-
-Above is just sample format, only generate that bullet points which data is given to you , don't add additionl points details in description response and don't write or mention any Note in the end of response.
-"""
 
 # response_class=PlainTextResponse
 #dubai agency description api on live
@@ -1070,11 +1061,11 @@ async def project_description(data: str):
 
     try:
         completion = openai.ChatCompletion.create(
-            deployment_id="sqy-gpt-35-turbo-16k",
-            model="sqy-text-embedding-ada-002",
+            deployment_id="sqy-gpt4o-mini",
+            model="sqy-gpt4o-mini",
             temperature=0.7,
             messages=[
-                {"role": "system", "content": ca_prompt2},
+                {"role": "system", "content": canada_prompt},
                 {"role": "user", "content": req_body}
             ]
         )
@@ -1089,18 +1080,7 @@ async def project_description(data: str):
     except Exception as e:
         logging.error(f"An error occurred: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
-    w
-
-Canada_description_prompt2 = """
-Generate a concise project description in two paragraphs based on the provided input data:
-
-1. The first paragraph should introduce the project, mentioning its name, location, developer, architect, and key highlights like the number of buildings, total residential gross floor area, and total units.
-2. The second paragraph should describe the neighborhood and nearby amenities, including schools and hospitals, specifying their names and types, in a professional and informative tone.
-
-Ensure the response is formatted as:
-<p>First paragraph content.</p>
-<p>Second paragraph content.</p>
-"""
+    
 
 @app.post("/ca_description2")
 async def project_description(data: str):
@@ -1111,8 +1091,8 @@ async def project_description(data: str):
 
     try:
         completion = openai.ChatCompletion.create(
-            deployment_id="sqy-gpt-35-turbo-16k",
-            model="sqy-text-embedding-ada-002",
+            deployment_id="sqy-gpt4o-mini",
+            model="sqy-gpt4o-mini",
             temperature=0.7,
             messages=[
                 {"role": "system", "content": Canada_description_prompt2},
@@ -1131,278 +1111,6 @@ async def project_description(data: str):
         logging.error(f"An error occurred: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
     
-# Prompts
-html_sample = """<p>
-paragrapgh
-</p>
-
-<p>
-paragrapgh
-</p>
-
-<p>
-paragrapgh
-</p>
-
-<strong>Available Unit Options</strong>
-<p>The following table outlines the available unit options at (Project name):</p>
-<div class='tablesResponsive'>
-  <table width='100%' border='1' cellspacing='0' cellpadding='5'>
-    <tbody>
-      <tr>
-        <td>Unit Type</td>
-        <td>Area (Sq. Ft.)</td>
-        <td>Price (Rs.)</td>
-      </tr>
-      <tr>
-        <td>Retail Shop</td>
-        <td>183</td>
-        <td>56.64 Lac</td>
-      </tr>
-      <tr>
-        <td>Retail Shop</td>
-        <td>728</td>
-        <td>2.25 Cr</td>
-      </tr>
-    </tbody>
-  </table>
-</div>
-"""
-
-prompt = f"""
-You are real-estate agent. I will give you details of a real-estate project. Your task is generate the project description that should be SEO-Friendly. The content should include the following sections:
-- Using all provided details generate project description and description should be divided into 3 large paragraph's only and not more than 1-2 line about amenties and specifications in description.
-- Generate a available unit option table. Ensure the prices are clearly labeled with 'Lac' or 'Cr' for clarity.")
-
-Note :- Begin direct with description, don't write any line in starting of final response
-
-this is the sample format, i want response in this format without any syntax error:-
-{html_sample}
-
--Above sample is just format , dont use its value.
-"""
-
-prompt2 = """
-I will give you details of a real-estate project. Your task is generate the project description that should be SEO-Friendly. The content should include the following sections:
--Using all provided details generate project description and description should be divided into 2-3 large paragraph's only.
-
-Please ensure that:
-- Dont Mention paragrapgh numbers.
-- If some details are not available, omit those sections in the final response.
-- Dont write any additional line in response.
-- Ensure the format is error-free.
-
-sample response format:- 
-<p>
-paragrapgh
-</p>
-
-<p>
-paragrapgh
-</p>
-
-<p>
-paragrapgh
-</p>
-
--Above sample is just format , dont use its value.
-"""
-
-listing_table_prompt = """
-I will provide you details of a real estate project listings information. Your task is to create section for listing table , first write something about listing table then make a table.
-Ensure the table has a clean and structured layout.
-- Dont write any additional line.
-- If details not available dont mention about this.
-- Table structured should be in well format without any syntax error
-
-sample Format response:
-<strong>Listing Information</strong> <p>We have total 44 options available in {project name} for resale and rental, In resale we have 17 properties available ranging from 2 BHK - 3 BHK having sizes from  1.47 CR - ₹ 3.10 CR </p> <p>For rent you can check 27 properties having options for 2 BHK - 3 BHK with price ranging from ₹ 40000 - ₹ 50000.</p> <div class="tablesResponsive"> <table width="100%" border="1" cellspacing="0" cellpadding="5"> <tbody> <tr> <td>Listing Type</td> <td>Total Listings</td> <td>Unit Type Range</td> <td>Price Range</td> </tr> <tr> <td>Resale</td> <td>17</td> <td>2 BHK - 2.5 BHK</td> <td>1.55 CR - ₹ 3.10 CR</td> </tr> <tr> <td>Rental</td> <td>17</td> <td>2 BHK - 2.5 BHK</td> <td>1.55 CR - ₹ 3.10 CR</td> </tr> </tbody> </table> </div>
-
--Above sample is just for format, dont use its value.
-"""
-
-listing_table_prompt_2 = """
-I will provide you details of a real estate project listings information. Your task is to create section for listing table , first write something about listing table then make a table.
-Ensure the table has a clean and structured layout.
-- Dont write any additional line.
-- If details not available dont mention about this.
-- Table structured should be in well format without any syntax error
-
-Sample Table Format response:-
-<strong>Listing Information</strong> <p>In resale we have 31 properties available ranging from (unit type) having price from {Price}</p> <div class="tablesResponsive"> <table width="100%" border="1" cellspacing="0" cellpadding="5"> <tbody> <tr> <td>Listing Type</td> <td>Total Listings</td> <td>Unit Type Range</td> <td>Price Range</td> </tr> <tr> <td>Resale</td> <td>17</td> <td>2 BHK - 2.5 BHK</td> <td>1.55 CR - ₹ 3.10 CR</td> </tr> </tbody> </table> </div>
-
-Above sample is just for format, dont use its value.
-"""
-
-listing_table_prompt_plot = """
-I will provide you details of a real estate project listings information. Your task is to create section for listing table , first write something about listing table then make a table.
-Ensure the table has a clean and structured layout.
-- Dont write any additional line
-- If details not available dont mention about this
-- Table structured should be in well format without any syntax error
-- If price is same, just give one price value in table.
-
-sample Format response:-
-<strong>Listing Information</strong> <p> In this (Project name) for resale we have total (count) properties available having price from {Price} </p> <div class="tablesResponsive"> <table width="100%" border="1" cellspacing="0" cellpadding="5"> <tbody> <tr> <td>Listing Type</td> <td>Total Listings</td> <td>Unit Type Range</td> <td>Price Range</td> </tr> <tr> <td>Resale</td> <td>17</td> <td>2 BHK - 2.5 BHK</td> <td>1.55 CR - ₹ 3.10 CR</td> </tr> <tr> <td>Rental</td> <td>17</td> <td>2 BHK - 2.5 BHK</td> <td>1.55 CR - ₹ 3.10 CR</td> </tr> </tbody> </table> </div>
-
--Above sample is just for format, dont use its value.
-"""
-
-listing_table_prompt_commercial = """
-I will provide you details of a real estate project listings information. Your task is to create section for listing table , first generate summary about listing table then make table.
-
-Ensure the table has a clean and structured layout. If in provided data some key is null or no value, remove those column from table.
--Remove that coloum, which has no value available.
--if rental details not available dont write about this.
--Dont write any additional line.
-
-sample Format response:
-<strong>Listing Information</strong> <p>We have (total count) options available in (project name) for resale and rental, In resale we have (count) properties available ranging from (unit type) having sizes from (price) </p> <p>For rent you can check (count) properties having options for (unit type) with price ranging from (price).</p> <div class="tablesResponsive"> <table width="100%" border="1" cellspacing="0" cellpadding="5"> <tbody> <tr> <td>Listing Type</td> <td>Total Listings</td> <td>Unit Type Range</td> <td>Price Range</td> </tr> <tr> <td>Resale</td> <td>17</td> <td>2 BHK - 2.5 BHK</td> <td>1.55 CR - ₹ 3.10 CR</td> </tr> <tr> <td>Rental</td> <td>17</td> <td>2 BHK - 2.5 BHK</td> <td>1.55 CR - ₹ 3.10 CR</td> </tr> </tbody> </table> </div>
-
-Note:- This is just for format, use only provided data to make this type of response , dont add additional lines .
-"""
-
-nearby_landmarks_prompt = """
-I will provide details of the landmarks for a real estate project. 
-- Begin with a brief 2-3 sentence summary highlighting the significance of these landmarks.
-- After first step, Follow this with bullet points listing the landmarks in a sentence format, specifying distances where applicable.
-- Dont write any additional line.
-
-I want response format like this :-
-<strong>Nearby Landmarks</strong> <p>The residential property is strategically located near several notable landmarks, providing residents with easy access to essential amenities and services. These landmarks not only enhance the quality of life for residents but also offer a unique blend of convenience and comfort.</p> <ul> <li>St Angels Global School is just 0.2 km away, making it an ideal choice for families with children.</li> <li>Southern Peripheral Road is 5.3 km away, providing a convenient connection to the city.</li> <li>Intellion Edge is 4.1 km away, offering a hub for business and entrepreneurship.</li> <li>Hotel Sapphire is 3.3 km away, perfect for guests and visitors.</li> <li>Ananta Hospital is 1.6 km away, ensuring timely medical attention in case of an emergency.</li> <li>Spaze Forum is 2.5 km away, offering a range of shopping and dining options.</li> </ul>
-
--Above sample is just for format , dont use its value.
-"""
-
-transaction_prompt = """
-I will give you details of real estate project for :- Govt. Registered Recent Transactions. Your task is generate a paragraph an SEO-optimized summary for the recent government-registered transactions in the real estate market Begin with direct pargarpgh dont wrtie any heading line.
-
-Example Response:-
-<strong>Govt. Registered Recent Transactions</strong><p>Over the past three months, the rental rate for properties in the residential area has remained consistently high at ₹ 23.885, with the current rate sitting at ₹ 9,264. This pattern has been observed over the past six months, with no significant fluctuations in the rental rate. However, a more dramatic shift is seen when examining the current state of the market over the past year, which has witnessed a total of 7 government-registered sales transactions with a combined gross sales value of ₹ 9 Cr, providing insight into the significant activity in the area.</p>
-
--Above sample is just for format , dont use its value.
-"""
-
-why_invest = """
-I will provide you with details of a real estate project. Your task is to generate a why invest in this project bullet points.
--The bullet points should be seo-friendly for buyers.
--Bullet point contain only 6-7 words.
--Not more than 5 bullet points.
--Dont write any additional line in response .
-sample format of Response:-
-<ul>
-  <li>Seamless connectivity to NH 8, Sohna Road, and Southern Peripheral Road, ideal for commuters.</li>
-  <li>Posh neighbourhood and rich landscaping</li>
-  <li>Prime location in Sector 70A, Gurgaon, close to industrial and commercial hubs.</li>
-  <li>Spacious apartments ranging from 1475 to 3500 sq. ft., catering to various needs.</li>
-  <li>2 BHK and 3 BHK apartments at competitive prices, offering an attractive investment opportunity.</li>
-</ul>
-
-
-
--Above sample is just for format, dont use its value.
-"""
-
-example_question = """
-  . What are the key features of {'Project Name'}?
-  . How many units are available in {'Project Name'}?
-  . What types of configurations are available in {'Project Name'}?
-  . Who is the developer of {'Project Name'}?
-  . What are the nearby infrastructure developments and future growth potential of {'Project Name'}?
-  . What is the location of {'Project Name'}?
-  . Is {'Project Name'} RERA-registered?
-  . What is the expected possession date of {'Project Name'}?
-  . What is the status of construction at {'Project Name'}?
-  . What is the price range for units in {'Project Name'}?
-  . Does {'Project Name'} have legal approvals and clearances?
-  . What is the expected appreciation potential in the area of {'Project Name'}?
-  . What is the location of {'Project Name'} and its proximity to key landmarks?
-  . What is the total area of {'Project Name'}?
-  . What are the available unit sizes and configurations in {'Project Name'} (e.g., 1 BHK, 2 BHK, etc.)?
-  . What are the starting prices for units in {'Project Name'}?
-  . Is {'Project Name'} part of a gated community, and what are the security features?
-  . What is the distance to schools, hospitals, malls, and public transport from {'Project Name'}?
-  . What kind of flooring and fittings are provided in the homes at {'Project Name'}?
-"""
-
-example_question_1 = """
-  . What are the key features of {'Project Name'}?
-  . How many units are available in {'Project Name'}?
-  . What types of configurations are available in {'Project Name'}?
-  . Who is the developer of this {'Project Name'}?
-  . What are the nearby infrastructure developments and future growth potential of {'Project Name'}?
-  . What is the location of the {'Project Name'}?
-  . What is the expected possession date of {'Project Name'}?
-  . What is the status of construction in {'Project Name'}?
-  . What is the price range for units in {'Project Name'}?
-  . Does {'Project Name'} have legal approvals and clearances?
-  . What is the expected appreciation potential in this area of {'Project Name'}?
-  . What is the location of {'Project Name'} and its proximity to key landmarks?
-  . What is the total area of {'Project Name'}?
-  . What are the available unit sizes and configurations (e.g., 1 BHK, 2 BHK, etc.) in {'Project Name'}?
-  . What are the starting prices for units in {'Project Name'}?
-  . Is {'Project Name'} part of a gated community, and what are the security features?
-  . What is the distance to schools, hospitals, malls, and public transport from {'Project Name'}?
-  . What kind of flooring and fittings are provided in the homes of {'Project Name'}?
-"""
-
-faq_prompt1 = f"""
-You are a real-estate content writer. I will provide you detailed information about a real estate project.
-Your task is to generate only 5-7 unique Frequently Asked Questions (FAQs) with answers based on the provided details.
-Use this list of question for generate Question:- {example_question}.
-Begin FAQ generation directly, without any heading.
-
-Instructions:
-- Each FAQ should be unique in type.
-- Avoid generating questions about the project name.
-- Total FAQ not more than 5-7.
-- The answer should be in a meaningful sentence without any grammatical errors.
-- The way of asking question should be different from the sample questions.
-- Response should be without any syntax error.
-- Do not include additional lines or text beyond the FAQs.
-
-Note: Strictly follow this, generate only that questions whose answers are available.
-
-Sample response format:
-<div class="panel">
-    <div class="panelHeader">
-        <strong>Q: [Your Question Here]</strong>
-        <em class="icon-arrow-down"></em>
-    </div>
-    <div class="panelBody">
-        <p>[Your Answer Here]</p>
-    </div>
-</div>
-"""
-
-faq_prompt2 = f"""
-You are a real-estate content writer. I will provide you detailed information about a real estate project.
-Your task is to generate only 5-7 unique Frequently Asked Questions (FAQs) with answers based on the provided details.
-Use this list of question for generate Question:- {example_question_1}.
-Begin FAQ generation directly, without any heading.
-
-Instructions:
-- Each FAQ should be unique in type.
-- Avoid generating questions about the project name.
-- Total FAQ not more than 5-7.
-- The answer should be in a meaningful sentence without any grammatical errors.
-- The way of asking question should be different from the sample questions.
-- Response should be without any syntax error.
-- Do not include additional lines or text beyond the FAQs.
-
-Note: Strictly follow this, generate only that questions whose answers are available.
-
-Sample response format:
-<div class="panel">
-    <div class="panelHeader">
-        <strong>Q: [Your Question Here]</strong>
-        <em class="icon-arrow-down"></em>
-    </div>
-    <div class="panelBody">
-        <p>[Your Answer Here]</p>
-    </div>
-</div>
-"""
                                                                                                                                                               
 class ProjectDetails(BaseModel):
     project_id: str
@@ -2197,10 +1905,10 @@ async def generate_project_details(details: ProjectDetails):
             return result
                 
         if floor_plan_and_pricing == "Available Unit Options:":
-            overview_content_raw  = create_chat_completion(str(prompt2), raw_data2)
+            overview_content_raw  = create_chat_completion(str(overview_prompt_less_data), raw_data2)
             overview_content = extract_overview_content(overview_content_raw)
         else:
-            overview_content_raw2  = create_chat_completion(str(prompt), raw_data)
+            overview_content_raw2  = create_chat_completion(str(overview_prompt), raw_data)
             overview_content = extract_overview_content(overview_content_raw2)
 
         if get_rental(project_id) == "":
@@ -2302,10 +2010,10 @@ async def generate_project_details2(details: ProjectDetails):
 
         # Generate the required sections using prompts
         if floor_plan_and_pricing == "Available Unit Options:":
-            overview_content_raw = create_chat_completion(prompt2, raw_data2)
+            overview_content_raw = create_chat_completion(overview_prompt_less_data, raw_data2)
             overview_content = extract_overview_content(overview_content_raw)
         else:
-            overview_content_raw2 = create_chat_completion(prompt, raw_data)
+            overview_content_raw2 = create_chat_completion(overview_prompt, raw_data)
             overview_content = extract_overview_content(overview_content_raw2)
 
         nearby_landmarks_response = create_chat_completion(nearby_landmarks_prompt, landmarks_data)
@@ -2441,10 +2149,10 @@ def generate_project_details(details: ProjectDetails):
         
         # Generate the required sections using prompts
         if floor_plan_and_pricing == "Available Unit Options:":
-            overview_content_raw = create_chat_completion(prompt2, raw_data2)
+            overview_content_raw = create_chat_completion(overview_prompt_less_data, raw_data2)
             overview_content = extract_overview_content(overview_content_raw)
         else:
-            overview_content_raw2 = create_chat_completion(prompt, raw_data)
+            overview_content_raw2 = create_chat_completion(overview_prompt, raw_data)
             overview_content = extract_overview_content(overview_content_raw2)
 
         if get_rental(project_id) == "":
@@ -2582,11 +2290,11 @@ async def generate_project_details(details: ProjectDetails):
             return result
         
         if floor_plan_and_pricing == "Available Unit Options:":
-            overview_content_raw  = create_chat_completion(str(prompt2), raw_data2)
+            overview_content_raw  = create_chat_completion(str(overview_prompt_less_data), raw_data2)
             # print("overview_content_raw = ",overview_content_raw)
             overview_content = extract_overview_content(overview_content_raw)
         else:
-            overview_content_raw2  = create_chat_completion(str(prompt), raw_data)
+            overview_content_raw2  = create_chat_completion(str(overview_prompt), raw_data)
             # print("overview_content_raw2 = ",overview_content_raw2)
             overview_content = extract_overview_content(overview_content_raw2)
 
@@ -2717,8 +2425,6 @@ async def generate_project_faq(details: ProjectDetails):
 
         else:
             faq_prompt = faq_prompt1  # If Rera has valid data, use prompt2
-
-        print(faq_prompt)
         # Generate FAQ response
         faq_response = create_chat_completion(str(faq_prompt), rera_info)
         # Generate FAQ response
@@ -2743,53 +2449,6 @@ async def generate_project_faq(details: ProjectDetails):
             "status": 0,
             "FAQ_response": ""
         }
-
-# Fixed prompt for FAQ generation
-DSE_FAQ_PROMPT = """You are an expert real estate content writer and SEO specialist. Your task is to analyze the provided property metadata and create SEO-optimized FAQs that will help improve search rankings for key property-related queries.
-
-Instructions for FAQ Generation:
-
-1. Content Guidelines:
-   - Focus on high-value search terms related to property prices, amenities, location benefits, and investment potential
-   - Include specific location-based information from the metadata
-   - Ensure answers are factual and based on the provided metadata
-   - Maintain a professional yet conversational tone
-
-2. SEO Optimization:
-   - Use relevant long-tail keywords naturally in questions
-   - Include location-specific terms in both questions and answers
-   - Incorporate price ranges and property specifications when available
-   - Target common user queries about the property type and location
-
-3. Technical Requirements:
-   - Generate exactly 12 FAQs
-   - Return response in the following JSON format:
-     {
-       "faqs": [
-         {
-           "question": "Your question here?",
-           "answer": "Your answer here"
-         }
-       ]
-     }
-   - Ensure all JSON keys and values are properly formatted with double quotes
-   - No HTML tags or special formatting - pure text content only
-
-4. Answer Structure:
-   - Keep answers concise yet informative (40-60 words each)
-   - Include specific data points from the metadata
-   - Start with a direct answer and follow with supporting details
-   - End each answer with a clear value proposition
-
-5. Content Restrictions:
-   - No introductory or concluding text
-   - No placeholder or generic content
-   - No repetitive information across answers
-   - No speculative claims without data support
-   - No HTML tags or formatting in the content
-   - All content must be within the JSON structure
-
-Always return the response as a valid JSON object matching the specified structure. The response should be parseable by a JSON parser without any additional processing needed."""
 
 class URLContentInput(BaseModel):
     url: Optional[str] = None
@@ -2884,15 +2543,15 @@ def create_dse_faq(content):
         structured_prompt = DSE_FAQ_PROMPT + "\nPlease provide the FAQs in a structured format with clear questions and answers. Format each FAQ as 'Q: [question] A: [answer]'"
         
         completion = openai.ChatCompletion.create(
-            deployment_id="sqy-gpt-35-turbo-16k",
-            model="sqy-text-embedding-ada-002",
+            deployment_id="sqy-gpt4o-mini",
+            model="sqy-gpt4o-mini",
             temperature=0.7,
             messages=[
                 {"role": "system", "content": structured_prompt},
                 {"role": "user", "content": str(content)}
             ]
         )
-        get_content = dict(completion.choices[0].message)
+        get_content = completion.choices[0].message['content']
         return parse_faq_content(get_content['content'])
     except Exception as e:
         raise Exception(f"Error in chat completion: {str(e)}")
@@ -2992,24 +2651,35 @@ def create_indices(prompt, content):
             ],
         )
         completion_content = chat_completion.choices[0].message.content
-        response = str(completion_content).strip().replace("`", "")
-        response = str(completion_content).strip().replace("\n", "")
+        response = str(completion_content).strip().replace("`", "").replace("\n", "")
+        logging.info("OpenAI response successfully generated.")
         return response
     except Exception as e:
+        logging.error(f"Error in OpenAI call: {e}")
         return f"Error: {str(e)}"
 
 
 @app.post("/generate-indices")
 async def generate_all_type_indices(id: str):
     try:
-        # Fetch data from the API
+        # Fetch data from the API using httpx for async calls
         api_url = f"https://rsi.squareyards.com/get-indices-data?localityId={id}"
-        response = requests.get(api_url)
+        logging.info(f"Fetching data from API: {api_url}")
+
+        async with httpx.AsyncClient() as client:
+            response = await client.get(api_url)
+
         if response.status_code != 200:
+            logging.error(f"Failed to fetch data. Status code: {response.status_code}")
             return {"status": 0, "message": f"Failed to fetch data. Status code: {response.status_code}"}
 
-        data = response.json().get("data", {})
+        # Parse response data
+        api_data = response.json()
+        logging.info(f"API response received successfully.")
+
+        data = api_data.get("data", {})
         if not data:
+            logging.warning("No data found in the API response.")
             return {"status": 0, "message": "No data found for the given locality ID."}
 
         # Extract content for OpenAI prompts
@@ -3018,11 +2688,17 @@ async def generate_all_type_indices(id: str):
         livability_content = data.get("livability", {})
         education_and_health_content = data.get("education & health", {})
 
+        # Validate content before sending to OpenAI
+        def validate_content(content):
+            return content if content else "No data available."
+
         # Send data to OpenAI for processing
-        Connectivity_index_response = create_indices(Connectivity_index_prompt, connectivity_content)
-        Lifestyle_index_response = create_indices(Lifestyle_index_prompt, lifestyle_content)
-        Liveability_index_response = create_indices(Liveability_index_prompt, livability_content)
-        Education_and_health_response = create_indices(Education_and_health_prompt, education_and_health_content)
+        Connectivity_index_response = create_indices(Connectivity_index_prompt, validate_content(connectivity_content))
+        Lifestyle_index_response = create_indices(Lifestyle_index_prompt, validate_content(lifestyle_content))
+        Liveability_index_response = create_indices(Liveability_index_prompt, validate_content(livability_content))
+        Education_and_health_response = create_indices(Education_and_health_prompt, validate_content(education_and_health_content))
+
+        logging.info("Responses successfully generated for all indices.")
 
         return {
             "status": 1,
@@ -3032,5 +2708,76 @@ async def generate_all_type_indices(id: str):
             "Education_and_health_response": Education_and_health_response,
         }
 
+    except httpx.RequestError as e:
+        logging.error(f"HTTP request error: {e}")
+        return {"status": 0, "message": f"HTTP request error: {str(e)}"}
+
     except Exception as e:
-        return {"status": 0, "message": str(e)}
+        logging.error(f"Unexpected error: {e}")
+        return {"status": 0, "message": f"Internal server error: {str(e)}"}
+    
+@app.post("/generate_locality_description")
+async def locality_description(city: str,locality:str):
+    """
+    Api to generate locality description
+    """
+    # Fetch data from the API
+    api_url = f"https://stage-www.squareyards.com/getlocalitydatafordesc/{city}/{locality}"
+    response = requests.get(api_url)
+
+    if response.status_code == 200:
+        # Parse the JSON response
+        data = response.json()
+
+        # Create extractor instance with API data
+        extractor = DataExtractor(data)
+        # Get specific data
+        basic_info = extractor.get_basic_info()
+        nearby_localities = extractor.get_nearby_localities()
+        supply_demand_data = extractor.get_supply_demand()
+        indices_data = extractor.get_indices_data()
+        developers_data = extractor.get_developers_data()
+        connecting_roads = extractor.get_connecting_roads()
+        avg_prices = extractor.get_avg_price()
+        metro_stations = extractor.get_metro_stations()
+
+    try:
+        def create_content(prompt,json_data):
+            json_data = jsonable_encoder(json_data)
+            # print(json_data)
+            completion = openai.ChatCompletion.create(
+                deployment_id="sqy-gpt4o-mini",
+                model="sqy-gpt4o-mini",
+                temperature=0.7,
+                messages=[
+                    {"role": "system", "content": prompt},
+                    {"role": "user", "content": json_data}
+                ]
+            )
+
+            get_content = completion.choices[0].message['content']
+            result = get_content
+            description = re.sub(r"[\([{})\]]", "", result)
+            description = description.replace("\n","")
+            description = description.replace("`","")
+            return description
+    
+    except Exception as e:
+        logging.error(f"An error occurred: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+    
+    overview = create_content(str(prompt_for_locality), str(basic_info)+str(metro_stations))
+    response = [overview]
+
+    indices_overview = create_content(str(prompt_for_indices),(str(indices_data)+str(connecting_roads)))
+    response.append(indices_overview)
+
+    market_overview = create_content(str(market_overview_prompt),(str(basic_info)+str(developers_data)+str(nearby_localities)))
+    response.append(market_overview)
+
+    supply_demand = create_content(str(supply_demand_prompt),(str(basic_info)+str(supply_demand_data)))
+    response.append(supply_demand)
+
+
+    # response = f"{overview}\n{indices_overview}"
+    return {"response":str("\n\n".join(response)).replace("\n","")}

@@ -9,4 +9,4 @@
 *.ipynb
 x.py
 *.csv
-*.log
+# *.log
