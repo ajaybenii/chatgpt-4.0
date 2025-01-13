@@ -2535,6 +2535,7 @@ def parse_faq_content(content: str) -> List[dict]:
     except Exception as e:
         raise Exception(f"Error parsing FAQ content: {str(e)}")
 
+
 def create_dse_faq(content):
     """Creates a chat completion using Azure OpenAI with the fixed prompt."""
     try:
@@ -2551,7 +2552,7 @@ def create_dse_faq(content):
                 {"role": "user", "content": str(content)}
             ]
         )
-        get_content = completion.choices[0].message['content']
+        get_content = dict(completion.choices[0].message)
         return parse_faq_content(get_content['content'])
     except Exception as e:
         raise Exception(f"Error in chat completion: {str(e)}")
