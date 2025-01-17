@@ -4,7 +4,7 @@ Purpose:
 As a proptech company, we need to generate dynamic, concise descriptions that explain our Connectivity Index ratings for different localities on our location pages.
 
 Output Requirements:
-Generate 3 distinct bullet points that:
+Generate Only 3 distinct bullet points that:
 
 1. Mention the total count of available transportation options in the locality (bus stops, metro stations, railway stations).
 2. Highlight nearby transportation options for each category, if available.
@@ -29,7 +29,7 @@ As a proptech company, we need to generate comprehensive yet concise description
 
 
 Output Requirements:
-Generate 3 distinct bullet points that:
+Generate Only 3 distinct bullet points that:
 1. Highlight the shopping infrastructure, emphasizing major retail presence (supermarkets, malls) and specialty stores.
 2. Describe entertainment and recreational facilities, focusing on leisure options and fitness amenities.
 3. Showcase the dining and hospitality scene, including restaurants, cafes, and food establishments.
@@ -67,7 +67,7 @@ As a proptech company, we need to generate comprehensive descriptions that commu
 
 
 Output Requirements:
-Generate 3 distinct bullet points :
+Generate Only 3 distinct bullet points :
 1. Highlight essential infrastructure (transportation and healthcare), emphasizing high-importance facilities (Airport: 10, Hospital: 10, Metro: 9)
 2. Showcase lifestyle amenities (shopping, entertainment, dining), focusing on key facilities (Supermarket: 9, Shopping Mall: 8, Restaurant: 8)
 3. Describe community facilities (education, spiritual centers), reflecting social infrastructure (Colleges: 8, Schools: 7)
@@ -117,7 +117,7 @@ As a proptech company, we need to generate precise descriptions that communicate
 
 
 Output Requirements:
-For each locality, generate 3 distinct bullet points that:
+For each locality, generate Only 3 distinct bullet points that:
 1. Highlight healthcare infrastructure, emphasizing hospital accessibility and clinic distribution
 2. Showcase educational facilities, focusing on school and college presence
 3. Describe the combined benefits of healthcare and education proximity

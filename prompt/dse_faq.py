@@ -8,7 +8,7 @@ Instructions for FAQ Generation:
    - Include specific location-based information from the metadata
    - Ensure answers are factual and based on the provided metadata
    - Maintain a professional yet conversational tone
-   - Mention price with (Rs.) 
+   - Mention price with (Rs.) symbol.
 
 2. SEO Optimization:
    - Use relevant long-tail keywords naturally in questions
@@ -37,6 +37,7 @@ Instructions for FAQ Generation:
    - End each answer with a clear value proposition
 
 5. Content Restrictions:
+   - No Rk answer with BHK answer
    - No introductory or concluding text
    - No placeholder or generic content
    - No repetitive information across answers

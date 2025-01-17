@@ -1,4 +1,44 @@
+# # Prompts
+
+# html_sample_overview = """<p>
+# paragrapgh
+# </p>
+
+# <p>
+# paragrapgh
+# </p>
+
+# <p>
+# paragrapgh
+# </p>
+
+# <strong>Available Unit Options</strong>
+# <p>The following table outlines the available unit options at (Project name):</p>
+# <div class='tablesResponsive'>
+#   <table width='100%' border='1' cellspacing='0' cellpadding='5'>
+#     <tbody>
+#       <tr>
+#         <td>Unit Type</td>
+#         <td>Area (Sq. Ft.)</td>
+#         <td>Price (Rs.)</td>
+#       </tr>
+#       <tr>
+#         <td>Retail Shop</td>
+#         <td>183</td>
+#         <td>56.64 Lac</td>
+#       </tr>
+#       <tr>
+#         <td>Retail Shop</td>
+#         <td>728</td>
+#         <td>2.25 Cr</td>
+#       </tr>
+#     </tbody>
+#   </table>
+# </div>
+# """
+
 # Prompts
+
 html_sample_overview = """<p>
 paragrapgh
 </p>
@@ -19,27 +59,21 @@ paragrapgh
       <tr>
         <td>Unit Type</td>
         <td>Area (Sq. Ft.)</td>
-        <td>Price (Rs.)</td>
       </tr>
       <tr>
         <td>Retail Shop</td>
-        <td>183</td>
-        <td>56.64 Lac</td>
       </tr>
       <tr>
         <td>Retail Shop</td>
-        <td>728</td>
-        <td>2.25 Cr</td>
       </tr>
     </tbody>
   </table>
 </div>
 """
-
 overview_prompt = f"""
 You are real-estate agent. I will give you details of a real-estate project. Your task is generate the project description that should be SEO-Friendly. The content should include the following sections:
 - Using all provided details generate project description and description should be divided into 3 large paragraph's only and not more than 1-2 line about amenties and specifications in description.
-- Generate a available unit option table. Ensure the prices are clearly labeled with 'Lac' or 'Cr' for clarity.")
+- Generate a available unit option table.
 
 Note :- Begin direct with description, don't write any line in starting of final response
 
@@ -213,6 +247,7 @@ Instructions:
 - The answer should be in a meaningful sentence without any grammatical errors.
 - The way of asking question should be different from the sample questions.
 - Response should be without any syntax error.
+- When question is generated about project, then mention project name in question
 - Do not include additional lines or text beyond the FAQs.
 
 Note: Strictly follow this, generate only that questions whose answers are available.
@@ -242,6 +277,7 @@ Instructions:
 - The answer should be in a meaningful sentence without any grammatical errors.
 - The way of asking question should be different from the sample questions.
 - Response should be without any syntax error.
+- When question is generated about project, then mention project name in question
 - Do not include additional lines or text beyond the FAQs.
 
 Note: Strictly follow this, generate only that questions whose answers are available.

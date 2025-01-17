@@ -8,14 +8,20 @@ import ast
 import httpx
 import requests
 import json
+from datetime import datetime
+import urllib.parse
 
 
 
 from typing import List, Optional
+from fastapi import FastAPI, Query
 from groq import Groq
 from fastapi import FastAPI
 from pydantic import BaseModel, validator
 from fastapi import FastAPI, HTTPException
+from collections import Counter
+from functools import wraps
+import threading
 
 
 from urllib.parse import urlparse
@@ -64,14 +70,14 @@ from prompt.dse_faq import DSE_FAQ_PROMPT
 
 
 app = FastAPI(
-    title="Minite GPT3",
+    title="Minite GPT4",
     description="Generates description for real estate listings from the listing parameters",
     version="2.0.0"
 )
 
 
 # Setup logging for info level
-info_handler = logging.FileHandler('indices.log')
+info_handler = logging.FileHandler('projects.log')
 info_handler.setLevel(logging.INFO)
 info_formatter = logging.Formatter(
     '%(asctime)s %(levelname)s %(message)s',
@@ -84,6 +90,180 @@ logging.basicConfig(
     level=logging.INFO,
     handlers=[info_handler]
 )
+
+# Create formatters
+formatter = logging.Formatter(
+    '%(asctime)s %(levelname)s %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+
+# Setup indices logger
+indices_logger = logging.getLogger('indices')
+indices_logger.setLevel(logging.INFO)
+indices_handler = logging.FileHandler('indices.log')
+indices_handler.setLevel(logging.INFO)
+indices_handler.setFormatter(formatter)
+indices_logger.addHandler(indices_handler)
+
+# Setup DSE FAQ logger
+dse_logger = logging.getLogger('dse_faq')
+dse_logger.setLevel(logging.INFO)
+dse_handler = logging.FileHandler('dse_faq.log')
+dse_handler.setLevel(logging.INFO)
+dse_handler.setFormatter(formatter)
+dse_logger.addHandler(dse_handler)
+
+# Setup separate logger for residential project description endpoint
+residential_project_logger = logging.getLogger('residential_project_description')
+residential_project_logger.setLevel(logging.INFO)
+residential_project_handler = logging.FileHandler('residential_project_description.log')
+residential_project_handler.setLevel(logging.INFO)
+residential_project_handler.setFormatter(formatter)
+residential_project_logger.addHandler(residential_project_handler)
+
+
+# Setup separate logger for residential project description endpoint
+locality_logger = logging.getLogger('locality_page')
+locality_logger.setLevel(logging.INFO)
+locality_handler = logging.FileHandler('locality_page.log')
+locality_handler.setLevel(logging.INFO)
+locality_handler.setFormatter(formatter)
+locality_logger.addHandler(locality_handler)
+
+
+# Prevent logs from being passed to the root logger
+indices_logger.propagate = False
+dse_logger.propagate = False
+locality_logger.propagate = False
+residential_project_logger.propagate = False
+
+class APIMetrics:
+    def __init__(self):
+        self.api_hits = Counter()
+        self.successful_responses = Counter()
+        self.failed_responses = Counter()
+        self._lock = threading.Lock()
+        self.last_reset_time = datetime.now()
+
+    def increment_api_hit(self, endpoint: str):
+        with self._lock:
+            self.api_hits[endpoint] += 1
+
+    def increment_success(self, endpoint: str):
+        with self._lock:
+            self.successful_responses[endpoint] += 1
+
+    def increment_failure(self, endpoint: str):
+        with self._lock:
+            self.failed_responses[endpoint] += 1
+
+    def get_metrics(self):
+        with self._lock:
+            return {
+                'api_hits': dict(self.api_hits),
+                'successful_responses': dict(self.successful_responses),
+                'failed_responses': dict(self.failed_responses),
+                'tracking_since': self.last_reset_time.strftime('%Y-%m-%d %H:%M:%S')
+            }
+
+    def reset_metrics(self):
+        with self._lock:
+            self.api_hits.clear()
+            self.successful_responses.clear()
+            self.failed_responses.clear()
+            self.last_reset_time = datetime.now()
+
+
+# Create a new decorator to track endpoint hits for residential project description
+def track_project_metrics(service_type="Residential Project's"):
+    def decorator(func):
+        @wraps(func)
+        async def wrapper(*args, **kwargs):
+            # Correct the logic to use residential_project_metrics when service_type is 'Residential Project's'
+            if service_type == "Residential Project's":
+                metrics = residential_project_metrics
+                logger = residential_project_logger  # Using the residential project logger for this endpoint
+            else:
+                metrics = locality_metrices
+                logger = locality_logger  # Using the locality page logger for this endpoint
+
+            endpoint = func.__name__
+
+            try:
+                # Log and count API hit
+                metrics.increment_api_hit(endpoint)
+                logger.info(f"API Hit - Endpoint: {endpoint}")
+
+                # Execute the function
+                result = await func(*args, **kwargs)
+
+                # Log success and return
+                metrics.increment_success(endpoint)
+                logger.info(f"Success Response - Endpoint: {endpoint}")
+
+                # Log current metrics every 10 successful responses
+                if metrics.successful_responses[endpoint] % 10 == 0:
+                    current_metrics = metrics.get_metrics()
+                    logger.info(f"Current Metrics for {endpoint}: {current_metrics}")
+
+                return result
+
+            except Exception as e:
+                # Log failure
+                metrics.increment_failure(endpoint)
+                logger.error(f"Failed Response - Endpoint: {endpoint}, Error: {str(e)}")
+                raise
+
+        return wrapper
+    return decorator
+
+
+
+# Decorator for tracking API metrics
+def track_api_metrics(service_type="Dse Page FAQ's"):
+    def decorator(func):
+        @wraps(func)
+        async def wrapper(*args, **kwargs):
+            metrics = dse_metrics if service_type == "Dse Page FAQ's" else indices_metrics
+            logger = dse_logger if service_type == "Dse Page FAQ's" else indices_logger
+            endpoint = func.__name__
+            
+            try:
+                # Log and count API hit
+                metrics.increment_api_hit(endpoint)
+                logger.info(f"API Hit - Endpoint: {endpoint}")
+                
+                # Execute the function
+                result = await func(*args, **kwargs)
+                
+                # Log success and return
+                metrics.increment_success(endpoint)
+                logger.info(f"Success Response - Endpoint: {endpoint}")
+                
+                # Log current metrics every 10 successful responses
+                if metrics.successful_responses[endpoint] % 10 == 0:
+                    current_metrics = metrics.get_metrics()
+                    logger.info(f"Current Metrics for {endpoint}: {current_metrics}")
+                
+                return result
+                
+            except Exception as e:
+                # Log failure
+                metrics.increment_failure(endpoint)
+                logger.error(f"Failed Response - Endpoint: {endpoint}, Error: {str(e)}")
+                raise
+                
+        return wrapper
+    return decorator
+
+# Create metrics instances for dse_metrics
+dse_metrics = APIMetrics()
+# Create a metrics instance for indices_metrics
+indices_metrics = APIMetrics()
+# Create a metrics instance for residential project
+residential_project_metrics = APIMetrics()
+# Create a metrics instance for Locality-Page
+locality_metrices = APIMetrics()
 
 origins = [
     "https://ai.propvr.tech",
@@ -103,6 +283,21 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# loading environment variables from .env file
+load_dotenv()
+
+# OPENAI_DEPLOYMENT_NAME = 'sqy-gpt4o-mini'
+openai.api_type = "azure"
+openai.api_key = os.getenv('openai.api_key')
+openai.api_base = 'https://sqy-openai.openai.azure.com/'
+openai.api_version = "2023-05-15"
+
+groq_api_key = os.getenv("GROQ_API_KEY")
+if groq_api_key is None:
+    raise ValueError("API key not found. Set the GROQ_API_KEY environment variable.")
+
+client = Groq(api_key=groq_api_key)
 
 
 class project_body(BaseModel):
@@ -150,21 +345,6 @@ class request_body1(BaseModel):
     agency_name: str
     location: str
 
-# loading environment variables from .env file
-load_dotenv()
-
-# OPENAI_DEPLOYMENT_NAME = 'sqy-gpt4o-mini'
-openai.api_type = "azure"
-openai.api_key = os.getenv('openai.api_key')
-openai.api_base = 'https://sqy-openai.openai.azure.com/'
-openai.api_version = "2023-05-15"
-
-groq_api_key = os.getenv("GROQ_API_KEY")
-if groq_api_key is None:
-    raise ValueError("API key not found. Set the GROQ_API_KEY environment variable.")
-
-client = Groq(api_key=groq_api_key)
-
 def format_description(description):
     """
     Breaks descriptions into sentences and the creates format with first paragraph,
@@ -189,7 +369,6 @@ def format_description(description):
 @app.get("/")
 async def root():
     return "Hello World!!!"
-
 
 @app.post('/payingguest_descriptions')
 async def generate_payingguest_description(payingguest_listing_data: PayingGuestListingData, format: bool = False):
@@ -221,7 +400,6 @@ async def generate_payingguest_description(payingguest_listing_data: PayingGuest
     description = re.sub(r"[\([{})\]]", "", final_result1)
     
     return format_description(description)      
-
 
 @app.post("/residential_descriptions")
 async def generate_apartment_des_finetune1(fine_tune_apartment: request_body, format: bool = False):
@@ -1261,32 +1439,24 @@ def fetch_filtered_floor_plan_and_pricing(project_id):
 
         # Extract Floor Plan and Pricing
         floor_plan_and_pricing = data.get("Floor plan and pricing", [])
-        # print(floor_plan_and_pricing)
         if floor_plan_and_pricing:
             result = "Available Unit Options:\n"
             for item in floor_plan_and_pricing:
                 unit_type = item.get("unitType", "N/A")
                 area = item.get("area", "N/A")
-                price = item.get("price", "N/A")
-
-                # Update price to "on request" if it is ₹ 0
-                if price == "₹ 0":
-                    price = "On request"
 
                 # Filter out rows where unit type starts with "0"
                 if not unit_type.startswith("0"):
-                    result += f"Unit Type: {unit_type}, Area: {area}, Price: {price}\n"
-                elif price != "on request":
-                    result += f"Area: {area}, Price: {price}\n"
-
-            # print("result value : -", result.strip())
+                    result += f"Unit Type: {unit_type}, Area: {area}\n"
+                else:
+                    result += f"Area: {area}\n"
 
             return result.strip()  # Remove trailing newline
         else:
             return "Available Unit Options:"
     else:
         return f"Failed to retrieve data. Status code: {response.status_code}"
-    
+        
 def fetch_filtered_floor_plan_and_pricing_faq(project_id):
     # Define the API endpoint
     api_url = f"https://stage-www.squareyards.com/project-data-for-ai/{project_id}"
@@ -1318,7 +1488,7 @@ def fetch_filtered_floor_plan_and_pricing_faq(project_id):
 
                 # Filter out rows where price is "₹ 0"
                 if price != "₹ 0":
-                    result += f"Unit Type: {unit_type}, Area: {area}, Price: {price}\n"
+                    result += f"Unit Type: {unit_type}, Area: {area}\n"
 
             
         
@@ -1367,7 +1537,7 @@ def fetch_filtered_floor_plan_and_pricing_mixed(project_id):
 
                 # Filter out rows where price is "₹ 0"
                 if price != "₹ 0":
-                    result += f"Unit Type: {unit_type}, Area: {area}, Price: {price}\n"
+                    result += f"Unit Type: {unit_type}, Area: {area}\n"
 
             return result.strip()
         else:
@@ -1406,7 +1576,7 @@ def fetch_filtered_floor_plan_and_pricing_commerical(project_id):
                 
                 # Filter out rows where price is "₹ 0"
                 if price != "₹ 0":
-                    result += f"Unit Type: {unit_type}, Area: {area}, Price: {price}\n"
+                    result += f"Unit Type: {unit_type}, Area: {area}\n"
 
             # print(result.strip())
             return result.strip()  # Remove trailing newline
@@ -1847,24 +2017,46 @@ def extract_overview_content(html_string):
         return html_string  # Return the original string if <p> is not found or it's not a string
 
 @app.post("/residential-project-description")
+@track_project_metrics(service_type="Residential Project's")
 async def generate_project_details(details: ProjectDetails):
     project_id = details.project_id
 
-    # for project_id in project_ids:
     api_url = f"https://stage-www.squareyards.com/project-data-for-ai/{project_id}"
     response = requests.get(api_url)
 
     if response.status_code == 200:
-
         floor_plan_and_pricing = fetch_filtered_floor_plan_and_pricing(project_id)
         raw_data = "Use these details for project overview : \n"+get_project_data(project_id)+"\n\nUse this details for Table :- "+floor_plan_and_pricing
         raw_data2 = get_project_data(project_id)
-
         raw_data_usp = get_project_data_usp(project_id)
         details_listings = get_resale_and_rental_data(project_id)
         response_transaction = get_transaction_data(project_id)
         faq_data = str(get_project_data_for_FAQ(project_id))+" "+str(fetch_filtered_floor_plan_and_pricing_faq(project_id))+" "+str(get_transaction_data_faq(project_id))+" Nearby landmarks are "+str(fetch_filtered_landmarks_faq(project_id))
         landmarks_data = fetch_filtered_landmarks(project_id)
+
+        async def fetch_usp_data(project_data):
+            # Get the PDF URL from your project data
+            pdf_url = project_data.get("ProjectKnowledgePdf", "")
+            if not pdf_url:
+                return None
+            
+            # URL encode the PDF URL
+            encoded_pdf_url = urllib.parse.quote(pdf_url)
+            
+            # Make request to USP API
+            usp_api_url = f"https://syai-project-brochure.squareyards.com/generate_usp_using_path"
+            params = {"pdf_file_path": encoded_pdf_url}
+            
+            try:
+                async with httpx.AsyncClient() as client:
+                    usp_response = await client.post(usp_api_url, params=params)
+                    if usp_response.status_code == 200:
+                        residential_project_logger.info("PDF USP's generated successfully.")
+                        return usp_response.json().get("usp_response", "")
+                    return None
+            except Exception as e:
+                residential_project_logger.error("PDF Not Available.")
+                return None
 
         def create_chat_completion(prompt, content):
             content = jsonable_encoder(content)
@@ -1880,7 +2072,6 @@ async def generate_project_details(details: ProjectDetails):
                     }
                 ],
                 model="llama3-8b-8192"
-                # model="mixtral-8x7b-32768",
             )
             groq_reponse = chat_completion.choices[0].message.content
             result = str(groq_reponse).replace("'s","")
@@ -1897,38 +2088,46 @@ async def generate_project_details(details: ProjectDetails):
                     {"role": "system", "content": prompt},
                     {"role": "user", "content": f"This is the project details :-\n\n {content}"}
                 ]
-                )
-
+            )
             completion_content = chat_completion.choices[0].message.content
             result = str(completion_content).replace("'s","")
             result = result.replace("'","")
             return result
                 
         if floor_plan_and_pricing == "Available Unit Options:":
-            overview_content_raw  = create_chat_completion(str(overview_prompt_less_data), raw_data2)
+            overview_content_raw = create_chat_completion(str(overview_prompt_less_data), raw_data2)
+            residential_project_logger.info("overview_content generated successfully.")
             overview_content = extract_overview_content(overview_content_raw)
         else:
-            overview_content_raw2  = create_chat_completion(str(overview_prompt), raw_data)
+            overview_content_raw2 = create_chat_completion(str(overview_prompt), raw_data)
+            residential_project_logger.info("overview_content generated successfully.")
             overview_content = extract_overview_content(overview_content_raw2)
 
         if get_rental(project_id) == "":
             listing_table_response = "" if details_listings == "\n" else create_chat_completion(str(listing_table_prompt_2), get_project_data_listing(project_id)+"\n"+details_listings)
-
         else:
             listing_table_response = "" if details_listings == "\n" else create_chat_completion(str(listing_table_prompt), get_project_data_listing(project_id)+"\n"+details_listings)
             
         if landmarks_data == []:
+            residential_project_logger.info("Nearby  landmarks not available.")
             nearby_landmarks_response = " "
         else:
+            residential_project_logger.info("Nearby landmarks response generated successfully.")
             nearby_landmarks_response = create_chat_completion(str(nearby_landmarks_prompt), landmarks_data)
         
         response_transaction_table = "" if response_transaction == "NA" else create_chat_completion(str(transaction_prompt), response_transaction)
-        why_invest_response = create_chat_completion(str(why_invest), raw_data_usp)
         
-        data = response.json()
-
+        # Try to fetch USP from API first, fall back to previous method if not available
+        project_data = response.json()
+        usp_response = await fetch_usp_data(project_data)
+        
+        # If USP API fails or returns None, use the previous method
+        if usp_response is None:
+            usp_response = create_chat_completion(str(why_invest), raw_data_usp)
+            residential_project_logger.info("USP's response generated successfully.")
+           
         # Extract only the Rera field
-        rera_info = data.get("Rera", {})
+        rera_info = project_data.get("Rera", {})
 
         # Remove "Square Yards RERA" if present
         if "Square Yards RERA" in rera_info:
@@ -1936,12 +2135,12 @@ async def generate_project_details(details: ProjectDetails):
 
         # Check if Rera is empty or contains only {'Project RERA': ''}
         if not rera_info or rera_info == {'Project RERA': ''}:
-            faq_prompt = faq_prompt2  # If Rera is null, use prompt1
-
+            faq_prompt = faq_prompt2
         else:
-            faq_prompt = faq_prompt1  # If Rera has valid data, use prompt2
+            faq_prompt = faq_prompt1
 
         faq_response = create_chat_completion_openai(str(faq_prompt), faq_data)
+        residential_project_logger.info("Finall execution : FAQ's response generated successfully.")
 
         content = [overview_content]
         content.append(nearby_landmarks_response)
@@ -1953,8 +2152,8 @@ async def generate_project_details(details: ProjectDetails):
             content.append(response_transaction_table)
             
         # Extract the HTML part of FAQ response
-        start_index = faq_response.find('<div')  # Find the starting index of '<div>'
-        end_index = faq_response.rfind('</div>')  # Find the last occurrence of '</div>'
+        start_index = faq_response.find('<div')
+        end_index = faq_response.rfind('</div>')
 
         if start_index != -1 and end_index != -1:
             sliced_response_faq = faq_response[start_index:end_index + len('</div>')]
@@ -1964,16 +2163,16 @@ async def generate_project_details(details: ProjectDetails):
         return {
             "status": 1,
             "overview_content": str("\n\n".join(content)).replace("\n",""),
-            "usp_response": str(why_invest_response).replace("\n",""),
+            "usp_response": str(usp_response).replace("\n",""),
             "FAQ_response": str(sliced_response_faq).replace("\n","")
-            }
+        }
     else:
-        return{
-                "status":0,
-                "overview_content": "",
-                "usp_response": "",
-                "FAQ_response": ""
-                }
+        return {
+            "status": 0,
+            "overview_content": "",
+            "usp_response": "",
+            "FAQ_response": ""
+        }
         
 @app.post("/commercial-project-description")
 async def generate_project_details2(details: ProjectDetails):
@@ -1988,6 +2187,29 @@ async def generate_project_details2(details: ProjectDetails):
         response_transaction = get_transaction_data_commercial(project_id)
         faq_data = str(get_project_data_for_FAQ(project_id))+" "+str(fetch_filtered_floor_plan_and_pricing_faq(project_id))+" "+str(get_transaction_data_faq(project_id))+" Nearby landmarks are "+str(fetch_filtered_landmarks_faq(project_id))
         landmarks_data = fetch_filtered_landmarks(project_id)
+
+        async def fetch_usp_data(project_data):
+            # Get the PDF URL from your project data
+            pdf_url = project_data.get("ProjectKnowledgePdf", "")
+            if not pdf_url:
+                return None
+            
+            # URL encode the PDF URL
+            encoded_pdf_url = urllib.parse.quote(pdf_url)
+            
+            # Make request to USP API
+            usp_api_url = f"https://syai-project-brochure.squareyards.com/generate_usp_using_path"
+            params = {"pdf_file_path": encoded_pdf_url}
+            
+            try:
+                async with httpx.AsyncClient() as client:
+                    usp_response = await client.post(usp_api_url, params=params)
+                    if usp_response.status_code == 200:
+                        return usp_response.json().get("usp_response", "")
+                    return None
+            except Exception as e:
+                print(f"Error fetching USP data: {e}")
+                return None
         raw_data = "Use these details for project overview:-\n"+get_project_data(project_id)+"\n\nUse this details for Table :-\n"+floor_plan_and_pricing
         raw_data2 = "Use these details for project overview:-\n"+get_project_data(project_id)
         def create_chat_completion(prompt, content):
@@ -2030,8 +2252,16 @@ async def generate_project_details2(details: ProjectDetails):
             nearby_landmarks_response = create_chat_completion(nearby_landmarks_prompt, landmarks_data)
           
         response_transaction_table = "" if response_transaction == "NA" else create_chat_completion(transaction_prompt, response_transaction)
-        why_invest_response = create_chat_completion(why_invest, str(raw_data.strip()))
         
+        
+        # Try to fetch USP from API first, fall back to previous method if not available
+        project_data = response.json()
+        usp_response = await fetch_usp_data(project_data)
+        
+        # If USP API fails or returns None, use the previous method
+        if usp_response is None:
+            usp_response = create_chat_completion(why_invest, str(raw_data.strip()))
+
         def create_chat_completion_faq(prompt, content):
             content = jsonable_encoder(content)
             chat_completion_openai = openai.ChatCompletion.create(
@@ -2094,7 +2324,7 @@ async def generate_project_details2(details: ProjectDetails):
         return {
             "status": 1,
             "overview_content": str("\n\n".join(content)).replace("\n",""),
-            "usp_response": str(why_invest_response).replace("\n",""),
+            "usp_response": str(usp_response).replace("\n",""),
             "FAQ_response": str(sliced_response_faq).replace("\n","")
                 }
     else:
@@ -2105,7 +2335,7 @@ async def generate_project_details2(details: ProjectDetails):
             }
 
 @app.post("/plot-project-description")
-def generate_project_details(details: ProjectDetails):
+async def generate_project_details(details: ProjectDetails):
     project_id = details.project_id
 
     api_url = f"https://stage-www.squareyards.com/project-data-for-ai/{project_id}"
@@ -2123,7 +2353,30 @@ def generate_project_details(details: ProjectDetails):
 
         faq_data = str(get_project_data_for_FAQ(project_id))+" "+str(fetch_filtered_floor_plan_and_pricing_faq(project_id))+" "+str(get_transaction_data_faq(project_id))+" Nearby landmarks are "+str(fetch_filtered_landmarks_faq(project_id))
         landmarks_data = fetch_filtered_landmarks(project_id)
-
+        
+        async def fetch_usp_data(project_data):
+            # Get the PDF URL from your project data
+            pdf_url = project_data.get("ProjectKnowledgePdf", "")
+            if not pdf_url:
+                return None
+            
+            # URL encode the PDF URL
+            encoded_pdf_url = urllib.parse.quote(pdf_url)
+            
+            # Make request to USP API
+            usp_api_url = f"https://syai-project-brochure.squareyards.com/generate_usp_using_path"
+            params = {"pdf_file_path": encoded_pdf_url}
+            
+            try:
+                async with httpx.AsyncClient() as client:
+                    usp_response = await client.post(usp_api_url, params=params)
+                    if usp_response.status_code == 200:
+                        return usp_response.json().get("usp_response", "")
+                    return None
+            except Exception as e:
+                print(f"Error fetching USP data: {e}")
+                return None
+            
         def create_chat_completion(prompt, content):
             content = (str(content).split())
             
@@ -2169,7 +2422,17 @@ def generate_project_details(details: ProjectDetails):
         # listing_table_response = "" if details_listings == "\n" else create_chat_completion(listing_table_prompt_commercial, details_listings)
         # nearby_landmarks_response = create_chat_completion(nearby_landmarks_prompt, landmarks_data)
         response_transaction_table = "" if response_transaction == "NA" else create_chat_completion(transaction_prompt, response_transaction)
-        why_invest_response = create_chat_completion(why_invest, raw_data)
+        # why_invest_response = create_chat_completion(why_invest, raw_data)
+        
+        # Try to fetch USP from API first, fall back to previous method if not available
+        project_data = response.json()
+        usp_response = await fetch_usp_data(project_data)
+        
+        # If USP API fails or returns None, use the previous method
+        if usp_response is None:
+            usp_response = create_chat_completion(why_invest, str(raw_data.strip()))
+
+
         def create_chat_completion_faq(prompt, content):
             content = jsonable_encoder(content)
             chat_completion = openai.ChatCompletion.create(
@@ -2231,7 +2494,7 @@ def generate_project_details(details: ProjectDetails):
         return{
             "status": 1,
             "overview_content": str("\n\n".join(content)).replace("\n",""),
-            "usp_response": str(why_invest_response).replace("\n",""),
+            "usp_response": str(usp_response).replace("\n",""),
             "FAQ_response": str(sliced_response_faq).replace("\n","")
               }
 
@@ -2262,7 +2525,30 @@ async def generate_project_details(details: ProjectDetails):
         faq_data = str(get_project_data_for_FAQ(project_id))+" "+str(fetch_filtered_floor_plan_and_pricing_faq(project_id))+" "+str(get_transaction_data_faq(project_id))+" Nearby landmarks are "+str(fetch_filtered_landmarks_faq(project_id))
 
         landmarks_data = fetch_filtered_landmarks(project_id)
-
+        
+        async def fetch_usp_data(project_data):
+            # Get the PDF URL from your project data
+            pdf_url = project_data.get("ProjectKnowledgePdf", "")
+            if not pdf_url:
+                return None
+            
+            # URL encode the PDF URL
+            encoded_pdf_url = urllib.parse.quote(pdf_url)
+            
+            # Make request to USP API
+            usp_api_url = f"https://syai-project-brochure.squareyards.com/generate_usp_using_path"
+            params = {"pdf_file_path": encoded_pdf_url}
+            
+            try:
+                async with httpx.AsyncClient() as client:
+                    usp_response = await client.post(usp_api_url, params=params)
+                    if usp_response.status_code == 200:
+                        return usp_response.json().get("usp_response", "")
+                    return None
+            except Exception as e:
+                print(f"Error fetching USP data: {e}")
+                return None
+            
         def create_chat_completion(prompt, content):
            
             content = jsonable_encoder(content)
@@ -2310,8 +2596,17 @@ async def generate_project_details(details: ProjectDetails):
             nearby_landmarks_response = create_chat_completion(str(nearby_landmarks_prompt), landmarks_data)
         
         response_transaction_table = "" if response_transaction == "NA" else create_chat_completion(str(transaction_prompt), response_transaction)
-        why_invest_response = create_chat_completion(str(why_invest), raw_data_usp)
+        # why_invest_response = create_chat_completion(str(why_invest), raw_data_usp)
+                
+        # Try to fetch USP from API first, fall back to previous method if not available
+        project_data = response.json()
+        usp_response = await fetch_usp_data(project_data)
         
+        # If USP API fails or returns None, use the previous method
+        if usp_response is None:
+            usp_response = create_chat_completion(why_invest, str(raw_data_usp))
+
+
         def create_chat_completion_faq(prompt, content):
             content = jsonable_encoder(content)
             chat_completion = openai.ChatCompletion.create(
@@ -2368,7 +2663,7 @@ async def generate_project_details(details: ProjectDetails):
         return {
             "status": 1,
             "overview_content": str("\n\n".join(content)).replace("\n",""),
-            "usp_response": str(why_invest_response).replace("\n",""),
+            "usp_response": str(usp_response).replace("\n",""),
             "FAQ_response": str(sliced_response_faq).replace("\n","")
             }
     else:
@@ -2477,8 +2772,10 @@ class StandardResponse(BaseModel):
     message: str
     faq_content: dict = {}  # Changed to dict type to handle both success and error cases
 
+
 def create_error_response(error_message: str) -> dict:
     """Creates a standardized error response"""
+    dse_logger.error(f"Error response created: {error_message}")
     return {
         "status": "0",
         "message": error_message,
@@ -2487,6 +2784,7 @@ def create_error_response(error_message: str) -> dict:
 
 def create_success_response(faqs: List[dict]) -> dict:
     """Creates a standardized success response with structured FAQ content"""
+    dse_logger.info(f"Success response created with {len(faqs)} FAQs")
     return {
         "status": "1",
         "message": "",
@@ -2499,6 +2797,7 @@ def get_relative_path(url: str) -> str:
     """Extracts the relative path from a Square Yards URL."""
     parsed = urlparse(url)
     path = parsed.path.strip('/')
+    dse_logger.info(f"Extracted relative path: {path}")
     return path
 
 def parse_faq_content(content: str) -> List[dict]:
@@ -2509,11 +2808,15 @@ def parse_faq_content(content: str) -> List[dict]:
     try:
         # First try to parse if the response is already in JSON format
         try:
+            dse_logger.info("Attempting to parse FAQ content as JSON")
             faq_data = json.loads(content)
             if isinstance(faq_data, dict) and "faqs" in faq_data:
+                dse_logger.info("Successfully parsed FAQ content from JSON dict")
                 return faq_data["faqs"]
+            dse_logger.info("Successfully parsed FAQ content from JSON array")
             return faq_data
         except json.JSONDecodeError:
+            dse_logger.info("Content not in JSON format, parsing text format")
             # If not JSON, parse the text format and convert to structured format
             faqs = []
             # Split content into Q&A pairs (assuming format "Q: ... A: ...")
@@ -2531,18 +2834,22 @@ def parse_faq_content(content: str) -> List[dict]:
                         "answer": answer
                     })
             
+            dse_logger.info(f"Successfully parsed {len(faqs)} FAQs from text format")
             return faqs
     except Exception as e:
+        dse_logger.error(f"Error parsing FAQ content: {str(e)}")
         raise Exception(f"Error parsing FAQ content: {str(e)}")
-
 
 def create_dse_faq(content):
     """Creates a chat completion using Azure OpenAI with the fixed prompt."""
     try:
+        dse_logger.info("Starting DSE FAQ creation")
         content = jsonable_encoder(content)
+        # print(content)
         # Update the system prompt to request structured output
         structured_prompt = DSE_FAQ_PROMPT + "\nPlease provide the FAQs in a structured format with clear questions and answers. Format each FAQ as 'Q: [question] A: [answer]'"
         
+        dse_logger.info("Making OpenAI API call")
         completion = openai.ChatCompletion.create(
             deployment_id="sqy-gpt4o-mini",
             model="sqy-gpt4o-mini",
@@ -2553,39 +2860,47 @@ def create_dse_faq(content):
             ]
         )
         get_content = dict(completion.choices[0].message)
+        dse_logger.info("Successfully received OpenAI response")
         return parse_faq_content(get_content['content'])
     except Exception as e:
+        dse_logger.error(f"Error in chat completion: {str(e)}")
         raise Exception(f"Error in chat completion: {str(e)}")
 
 @app.post("/dse-page-faq/", response_model=StandardResponse)
+@track_api_metrics(service_type="Dse Page FAQ's")
 async def generate_faq(input_data: URLContentInput):
     """
     Generates FAQs based on either the provided Square Yards URL or direct post content.
     Returns standardized response format with structured FAQ content.
     """
     try:
-        # If post_content is provided and URL is empty/null, use direct content
+        dse_logger.info("Starting FAQ generation")
+        
         if not input_data.url and input_data.post_content:
             try:
-                
-                faq_content = create_dse_faq(input_data.post_content)
+                dse_logger.info("Processing direct post content")
+                faq_content = await create_dse_faq(input_data.post_content)
                 return JSONResponse(
                     content=create_success_response(faq_content)
                 )
             except Exception as e:
+                dse_logger.error(f"Error processing direct content: {str(e)}")
                 return JSONResponse(
                     content=create_error_response(f"Error processing content: {str(e)}")
                 )
 
         # Otherwise, follow the existing URL-based flow
+        dse_logger.info(f"Processing URL: {input_data.url}")
         relative_path = get_relative_path(input_data.url)
         
         # Construct the autocomplete API URL
         autocomplete_url = f"https://rsi.squareyards.com/url-autocomplete?searchText={relative_path}"
         
         # First API call to get meta data
+        dse_logger.info(f"Making first API call to: {autocomplete_url}")
         response = requests.get(autocomplete_url)
         if not response.ok:
+            dse_logger.error(f"First API call failed with status {response.status_code}")
             return JSONResponse(
                 content=create_error_response(f"First API call failed: {response.text}")
             )
@@ -2598,21 +2913,25 @@ async def generate_faq(input_data: URLContentInput):
             not meta_data.get('data') or
             len(meta_data['data']) == 0 or
             '_source' not in meta_data['data'][0]):
+            dse_logger.error("Invalid response structure from first API")
             return JSONResponse(
                 content=create_error_response("Invalid response structure from first API")
             )
             
         blog_post_id = meta_data['data'][0]['_source'].get('blogPostId')
         if not blog_post_id:
+            dse_logger.error("Blog post ID not found in the response")
             return JSONResponse(
                 content=create_error_response("Blog post ID not found in the response")
             )
             
         # Second API call to get blog content
+        dse_logger.info(f"Making second API call for blog post ID: {blog_post_id}")
         blog_api_url = f"https://www.squareyards.com/blog/wp-json/square/dsc-content?post_id={blog_post_id}"
         blog_response = requests.get(blog_api_url)
         
         if not blog_response.ok:
+            dse_logger.error(f"Second API call failed with status {blog_response.status_code}")
             return JSONResponse(
                 content=create_error_response(f"Second API call failed: {blog_response.text}")
             )
@@ -2621,23 +2940,26 @@ async def generate_faq(input_data: URLContentInput):
         blog_data = blog_response.json()
         
         if not blog_data or len(blog_data) == 0:
+            dse_logger.error("No content found in blog response")
             return JSONResponse(
                 content=create_error_response("No content found in blog response")
             )
         
         # Get the content and generate FAQs
+        dse_logger.info("Generating FAQs from blog content")
         original_content = blog_data[0].get('post_content', '')
         faq_content = create_dse_faq(original_content)
         
+        dse_logger.info("Successfully generated FAQs")
         # Return success response with structured FAQ content
         return JSONResponse(
             content=create_success_response(faq_content)
         )
             
     except Exception as e:
+        dse_logger.error(f"Unexpected error in generate_faq: {str(e)}")
         return JSONResponse(
-            content=create_error_response(str(e)))
-    
+            content=create_error_response(str(e)))  
 
 # OpenAI Chat Completion function
 def create_indices(prompt, content):
@@ -2653,34 +2975,33 @@ def create_indices(prompt, content):
         )
         completion_content = chat_completion.choices[0].message.content
         response = str(completion_content).strip().replace("`", "").replace("\n", "")
-        logging.info("OpenAI response successfully generated.")
         return response
     except Exception as e:
-        logging.error(f"Error in OpenAI call: {e}")
+        indices_logger.error(f"Error in OpenAI call: {e}")
         return f"Error: {str(e)}"
 
-
 @app.post("/generate-indices")
+@track_api_metrics(service_type='indices')
 async def generate_all_type_indices(id: str):
     try:
         # Fetch data from the API using httpx for async calls
         api_url = f"https://rsi.squareyards.com/get-indices-data?localityId={id}"
-        logging.info(f"Fetching data from API: {api_url}")
+        indices_logger.info(f"Fetching data from API: {api_url}")
 
         async with httpx.AsyncClient() as client:
             response = await client.get(api_url)
 
         if response.status_code != 200:
-            logging.error(f"Failed to fetch data. Status code: {response.status_code}")
+            indices_logger.error(f"Failed to fetch data. Status code: {response.status_code}")
             return {"status": 0, "message": f"Failed to fetch data. Status code: {response.status_code}"}
 
         # Parse response data
         api_data = response.json()
-        logging.info(f"API response received successfully.")
+        indices_logger.info(f"API response received successfully.")
 
         data = api_data.get("data", {})
         if not data:
-            logging.warning("No data found in the API response.")
+            indices_logger.warning("No data found in the API response.")
             return {"status": 0, "message": "No data found for the given locality ID."}
 
         # Extract content for OpenAI prompts
@@ -2688,18 +3009,19 @@ async def generate_all_type_indices(id: str):
         lifestyle_content = data.get("lifestyle", {})
         livability_content = data.get("livability", {})
         education_and_health_content = data.get("education & health", {})
-
+        indices_logger.info("Geting all raw content of indices")
         # Validate content before sending to OpenAI
         def validate_content(content):
             return content if content else "No data available."
 
+        indices_logger.info("Openai start the create indices.....")
         # Send data to OpenAI for processing
         Connectivity_index_response = create_indices(Connectivity_index_prompt, validate_content(connectivity_content))
         Lifestyle_index_response = create_indices(Lifestyle_index_prompt, validate_content(lifestyle_content))
         Liveability_index_response = create_indices(Liveability_index_prompt, validate_content(livability_content))
         Education_and_health_response = create_indices(Education_and_health_prompt, validate_content(education_and_health_content))
 
-        logging.info("Responses successfully generated for all indices.")
+        indices_logger.info("Indices response generated successfully.")
 
         return {
             "status": 1,
@@ -2710,23 +3032,26 @@ async def generate_all_type_indices(id: str):
         }
 
     except httpx.RequestError as e:
-        logging.error(f"HTTP request error: {e}")
+        indices_logger.error(f"HTTP request error: {e}")
         return {"status": 0, "message": f"HTTP request error: {str(e)}"}
 
     except Exception as e:
-        logging.error(f"Unexpected error: {e}")
+        indices_logger.error(f"Unexpected error: {e}")
         return {"status": 0, "message": f"Internal server error: {str(e)}"}
     
 @app.post("/generate_locality_description")
+@track_project_metrics(service_type="Locality Page")
 async def locality_description(city: str,locality:str):
     """
     Api to generate locality description
     """
+    locality_logger.info("Send City and locality name to API")
     # Fetch data from the API
     api_url = f"https://stage-www.squareyards.com/getlocalitydatafordesc/{city}/{locality}"
     response = requests.get(api_url)
 
     if response.status_code == 200:
+        locality_logger.info("Fetch data Successfully")
         # Parse the JSON response
         data = response.json()
 
@@ -2741,44 +3066,101 @@ async def locality_description(city: str,locality:str):
         connecting_roads = extractor.get_connecting_roads()
         avg_prices = extractor.get_avg_price()
         metro_stations = extractor.get_metro_stations()
+        top_five_localities = extractor.get_top_five_localities()
+        micromarket = extractor.get_micromarket()
+        
 
     try:
         def create_content(prompt,json_data):
             json_data = jsonable_encoder(json_data)
-            # print(json_data)
             completion = openai.ChatCompletion.create(
                 deployment_id="sqy-gpt4o-mini",
                 model="sqy-gpt4o-mini",
                 temperature=0.7,
                 messages=[
-                    {"role": "system", "content": prompt},
-                    {"role": "user", "content": json_data}
+                    {"role": "system", "content": (f"{prompt}, If some key are empty in data and you know the exact true answer about that key, so you can use your anserw details in final response content.")},
+                    {"role": "user", "content": (f"city {city}, { json_data} ")}
                 ]
             )
-
+        
             get_content = completion.choices[0].message['content']
             result = get_content
             description = re.sub(r"[\([{})\]]", "", result)
             description = description.replace("\n","")
             description = description.replace("`","")
+            description = description.replace("*","")
+            description = description.replace("#","")
             return description
     
     except Exception as e:
-        logging.error(f"An error occurred: {e}")
+        locality_logger.error(f"An error occurred: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
-    
-    overview = create_content(str(prompt_for_locality), str(basic_info)+str(metro_stations))
-    response = [overview]
 
+
+
+    #------------------Overview--------------------
+    locality_logger.info("Start overview creating")
+    overview = create_content(str(prompt_for_locality),str(f"{basic_info}. ")+str(metro_stations )+str(f"{micromarket}. " )+str(top_five_localities ))
+    response = [overview]
+    
+
+
+    #------------------indices_overview--------------------
+    locality_logger.info("Start indices overview creating")
     indices_overview = create_content(str(prompt_for_indices),(str(indices_data)+str(connecting_roads)))
     response.append(indices_overview)
 
-    market_overview = create_content(str(market_overview_prompt),(str(basic_info)+str(developers_data)+str(nearby_localities)))
+
+
+    #------------------market_overview--------------------
+    locality_logger.info("Start market overview creating")
+    market_overview = create_content(str(market_overview_prompt),(str(f"{basic_info}. ")+str(developers_data)))
     response.append(market_overview)
 
-    supply_demand = create_content(str(supply_demand_prompt),(str(basic_info)+str(supply_demand_data)))
+    
+    
+    #------------------supply_demand--------------------
+    locality_logger.info("Start supply demand creating")
+    supply_demand = create_content(str(supply_demand_prompt),(str(f"{basic_info}. ")+str(supply_demand_data)))
     response.append(supply_demand)
 
 
-    # response = f"{overview}\n{indices_overview}"
+
     return {"response":str("\n\n".join(response)).replace("\n","")}
+
+## Utility function to get current metrics for different services
+def get_current_metrics(service_type="Dse Page FAQ's"):
+    if service_type == "Dse Page FAQ's":
+        return dse_metrics.get_metrics()
+    elif service_type == 'indices':
+        return indices_metrics.get_metrics()
+    elif service_type == 'Locality Page':
+        return locality_metrices.get_metrics()
+    elif service_type == "Residential Project's":
+        return residential_project_metrics.get_metrics()  # Add the residential project metrics handling
+    else:
+        return {"error": "Invalid service type"}
+
+# Optional: Endpoint to view metrics
+@app.get("/metrics")
+async def view_metrics(service_type: str = Query(None, enum=["Dse Page FAQ's", "indices", "Residential Project's", "Locality Page"])):
+    if service_type not in ["Dse Page FAQ's", 'indices', "Residential Project's", "Locality Page"]:
+        return {"error": "Invalid service type"}
+    return get_current_metrics(service_type)
+
+# Optional: Endpoint to reset metrics
+@app.post("/reset-metrics/{service_type}")
+async def reset_metrics(service_type: str):
+    if service_type not in ["Dse Page FAQ's", 'indices', "Residential Project's", "Locality Page"]:
+        return {"error": "Invalid service type"}
+    
+    if service_type == "Dse Page FAQ's":
+        dse_metrics.reset_metrics()
+    elif service_type == 'indices':
+        indices_metrics.reset_metrics()
+    elif service_type == "Residential Project's":
+        residential_project_metrics.reset_metrics()
+    elif service_type == "Locality Page":
+        locality_metrices.reset_metrics()  # Reset metrics for locality page service
+    
+    return {"message": f"Metrics reset for {service_type} service"}

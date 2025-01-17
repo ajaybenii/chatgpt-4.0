@@ -5,7 +5,7 @@ prompt_for_locality = """You are a Indian real estate agent. Your task is to gen
                     Ensure that the heading is engaging and provides a snapshot of the area's appeal to potential residents or investors.
                     
                     ##Sample response format should be this :-
-                    <h2>Headin line</h2>
+                    <h2>Headline here</h2>
                     <p>Locality overview here</p>"""
 
 prompt_for_indices = """You are a Indian real estate agent.
@@ -49,10 +49,10 @@ market_overview_prompt = """You are a Indian real estate agent. Write a detailed
 
                     ##Sample response format this:
                     also give a sample like this :-
-                    <h2>Real Estate Market Overview of sector 50</h2>
+                    <h2>Real Estate Market Overview of {locality name only} </h2>
                     <p>market overview paragrapgh</p>
                     
-                    <h4>Leading Real Estate Developers in Sector 50</h4>
+                    <h4>Leading Real Estate Developers in {locality name only} </h4>
                     <p>Developers  paragrapgh here </p>
                     
                     <h4>Key Projects and Developments</h4>
@@ -70,6 +70,7 @@ supply_demand_prompt = """You are a Indian real estate agent. Write a detailed a
                     Provide an overview of the property supply in the area, including types of properties available (e.g., apartments, builder floors, villas) with approximate percentages.
                     Highlight the most common property configurations (e.g., 2BHK, 3BHK, 4BHK) and their appeal.
                     Mention the prevalent price ranges and the types of buyers these cater to (e.g., mid-range, premium).
+                    
                     Demand Highlights:
 
                     Discuss the factors driving demand in the area, such as location, amenities, or connectivity.
@@ -77,22 +78,26 @@ supply_demand_prompt = """You are a Indian real estate agent. Write a detailed a
                     Highlight budget trends, focusing on the most popular price brackets and their significance for homebuyers and investors.
                     Structure the response in a professional yet engaging tone, using bullet points for clarity and conciseness. Format with headings and lists for easy readability.
 
+                    I want only 3-3 bullet points for both Supply Breakdown and Demand Highlights as you can see in sample response format.
+                    
                     ##Sample response format:
-                    <h2>Property Supply & Demand Trends in Sector 50</h2>
+                    <h2>Property Supply & Demand Trends in {locality name only}</h2>
 
                     <h4>Supply Breakdown</h4>
-                    <p>Sector 50 offers a robust mix of properties, making it appealing to a wide audience.</p>
+                    <p>The locality’s offers a robust mix of properties, making it appealing to a wide audience.</p>
                     <ul>
-                    <li>Property Types: Apartments dominate the supply, accounting for 57%, followed by builder floors at 37%, ensuring diverse housing options.</li>
-                    <li>Configurations: Spacious 3BHK and 4BHK units make up approximately 72% of the supply, particularly attractive to families seeking modern yet roomy homes.</li>
-                    <li>Price Range: Properties priced between ₹2.5–5 crore are most prevalent, catering to buyers looking for mid-to-premium homes.</li>
+                    <li>Property Types:write here</li>
+                    <li>Configurations: write here</li>
+                    <li>Price Range: write here</li>
                     </ul>
 
                     <h4>Demand Highlights</h4>
                     <p>The locality’s prime location and amenities have spurred consistent demand.</p>
+
                     <ul>
                     <li>Property Types in Demand: write here</li>
                     <li>Preferred Configurations: write here</li>
                     <li>Budget Trends: write here</li>
                     </ul>
+
                     """

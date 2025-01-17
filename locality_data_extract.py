@@ -12,6 +12,17 @@ class DataExtractor:
         pincode = self.json_data.get('pincode', '')
         return f"{self.json_data.get('name', '')}, {pincode}" if pincode else self.json_data.get('name', '')
         
+    def get_micromarket(self) -> str:
+        """Get basic information about the micromarket."""
+        micromarket = self.json_data.get('micromarketname', '').strip()
+        return f" and micromarket is {micromarket}" if micromarket else ''  
+    
+    def get_top_five_localities(self) -> List[str]:
+        """Get the names of the top five nearby localities, or fewer if less are available."""
+        localities = self.json_data.get('nearByLocalities', [])
+        names = [locality.get('subLocalityName', '') for locality in localities]
+        return ("Near by localities are ",names[:5])  # Return only the first 5 names, or fewer if less are available.
+
     def get_nearby_localities(self) -> List[Dict]:
         """Get information about nearby localities."""
         localities = self.json_data.get('nearByLocalities', [])
