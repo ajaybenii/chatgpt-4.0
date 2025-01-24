@@ -1,0 +1,28 @@
+2025-01-24 15:18:26 INFO API Hit - Endpoint: generate_all_type_indices
+2025-01-24 15:18:26 INFO Fetching data from API: https://rsi.squareyards.com/get-indices-data?localityId=6
+2025-01-24 15:18:26 INFO API response received successfully.
+2025-01-24 15:18:26 INFO Geting all raw content of indices
+2025-01-24 15:18:26 INFO Openai start the create indices.....
+2025-01-24 15:18:32 INFO Indices response generated successfully.
+2025-01-24 15:18:32 INFO Success Response - Endpoint: generate_all_type_indices
+2025-01-24 15:21:44 INFO API Hit - Endpoint: generate_all_type_indices
+2025-01-24 15:21:44 INFO Fetching data from API: https://rsi.squareyards.com/get-indices-data?localityId=6
+2025-01-24 15:21:45 INFO API response received successfully.
+2025-01-24 15:21:45 INFO Geting all raw content of indices
+2025-01-24 15:21:45 INFO Openai start the create indices.....
+2025-01-24 15:21:51 INFO Indices response generated successfully.
+2025-01-24 15:21:51 INFO Success Response - Endpoint: generate_all_type_indices
+2025-01-24 15:24:02 INFO API Hit - Endpoint: generate_all_type_indices
+2025-01-24 15:24:02 INFO Fetching data from API: https://rsi.squareyards.com/get-indices-data?localityId=6
+2025-01-24 15:24:02 INFO API response received successfully.
+2025-01-24 15:24:02 INFO Geting all raw content of indices
+2025-01-24 15:24:02 INFO Openai start the create indices.....
+2025-01-24 15:24:10 INFO Indices response generated successfully.
+2025-01-24 15:24:10 INFO Success Response - Endpoint: generate_all_type_indices
+2025-01-24 15:25:22 INFO API Hit - Endpoint: generate_all_type_indices
+2025-01-24 15:25:22 INFO Fetching data from API: https://rsi.squareyards.com/get-indices-data?localityId=9
+2025-01-24 15:25:22 INFO API response received successfully.
+2025-01-24 15:25:22 INFO Geting all raw content of indices
+2025-01-24 15:25:22 INFO Openai start the create indices.....
+2025-01-24 15:25:29 INFO Indices response generated successfully.
+2025-01-24 15:25:29 INFO Success Response - Endpoint: generate_all_type_indices

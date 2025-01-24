@@ -1,12 +1,29 @@
+# Environment files
 .env
-.venv
-.venvv
-.__pycache__
-**__pycache__
+.venv/
+.venv2/
+.venvv/
+__pycache__/
+**/__pycache__
+
+# macOS-specific files
 .DS_Store
-.pytest_cache
+
+# Python-related cache and test files
+.pytest_cache/
 .ipynb_checkpoints/
+
+# Jupyter notebooks
 *.ipynb
+
+# Python scripts (if needed)
 x.py
+
+# Data files
 *.csv
+
+# Logs (uncomment if log files should be ignored)
 # *.log
+
+# Google Cloud credentials
+*.json
