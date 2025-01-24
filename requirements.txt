@@ -5,3 +5,9 @@ uvicorn
 python-dotenv==0.18.0
 requests
 groq
+beautifulsoup4
+fake-useragent
+replicate
+pillow
+google-cloud-storage
+lxml
