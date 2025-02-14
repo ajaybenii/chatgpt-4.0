@@ -3692,7 +3692,7 @@ async def get_task_status():
 
 
 # Optional: Endpoint to view metrics
-@app.get("/new_generater")
+@app.get("/news_generater")
 async def view_news_type(news_url: str, service_type: str = Query(None, enum=["ET-Realty", "Construction world", "Realtyplus"])):
     """
     Endpoint to generate news based on the provided URL and service type.
