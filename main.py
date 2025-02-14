@@ -43,6 +43,10 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
 from locality_data_extract import DataExtractor
 
+from Constworld import construction_world_news_generater
+from Realtyplus import realtyplus_news_generated
+from Etrealty import  Etrealty_news_generated
+
 from models.property_types import (CommercialListingDataupdated,
                                     LandListingDataupdated,
                                      OfficeSpaceListingDataupdated,
@@ -76,6 +80,7 @@ from prompt.locality import (market_overview_prompt,
 
 from prompt.canada_project import (canada_prompt,
                                    Canada_description_prompt2)
+
 
 from prompt.dotcom_listing import Listing_description_prompt
 from prompt.dse_faq import DSE_FAQ_PROMPT
@@ -3362,36 +3367,50 @@ async def generate_all_type_indices(id: str):
             indices_logger.warning("No data found in the API response.")
             return {"status": 0, "message": "No data found for the given locality ID."}
 
-        # Extract content for OpenAI prompts without 'Rating', 'latitude', and 'longitude'
         def filter_data(data):
             def remove_lat_lng(content):
-                # Deep copy to avoid mutating the original data
-                filtered_content = {}
-                for key, value in content.items():
-                    if key == "Rating":  # Skip 'Rating'
-                        continue
-                    if isinstance(value, dict):
-                        # Handle nested dictionaries
-                        if "nameswithlatlng" in value:
-                            # Remove latitude and longitude from 'nameswithlatlng'
-                            value["nameswithlatlng"] = [
-                                {"searchtext": item["searchtext"]} for item in value["nameswithlatlng"]
-                            ]
-                        filtered_content[key] = remove_lat_lng(value)
-                    else:
-                        filtered_content[key] = value
-                print("filtered_content: ",filtered_content)
-                return filtered_content
+                # Handle cases where content is a dictionary
+                if isinstance(content, dict):
+                    filtered_content = {}
+                    for key, value in content.items():
+                        if key in ["Rating", "localityname"]:  # Skip 'Rating' and 'localityname'
+                            continue
+                        if isinstance(value, dict):
+                            # Handle nested dictionaries
+                            if "nameswithlatlng" in value:
+                                # Remove latitude and longitude from 'nameswithlatlng'
+                                value["nameswithlatlng"] = [
+                                    {"searchtext": item["searchtext"]} for item in value["nameswithlatlng"]
+                                ]
+                            # Recursively apply the function to nested dictionaries
+                            filtered_content[key] = remove_lat_lng(value)
+                        else:
+                            filtered_content[key] = value
+                    return filtered_content
+                # Handle cases where content is a list
+                elif isinstance(content, list):
+                    return [remove_lat_lng(item) for item in content]
+                # Return the value directly for other data types
+                else:
+                    return content
 
-            return {key: remove_lat_lng(value) for key, value in data.items() if value}
+            # Apply the removal function to the root data dictionary and remove any empty or null values
+            return {key: remove_lat_lng(value) for key, value in data.items() if value and key not in ["localityname", "Rating"]}
 
         # Filter specific sections from data
+        # print("raw----------\n", data.get("connectivity", {}))
+
         connectivity_content = filter_data(data.get("connectivity", {}))
         lifestyle_content = filter_data(data.get("lifestyle", {}))
         livability_content = filter_data(data.get("livability", {}))
         education_and_health_content = filter_data(data.get("education & health", {}))
         indices_logger.info("Geting all raw content of indices")
-        # Validate content before sending to OpenAI
+
+        print("connectivity_content:- ",connectivity_content,"\n  ")
+        print("lifestyle_content:- ",lifestyle_content,"\n ")
+        print("livability_content:- ",livability_content,"\n ")
+        print("education_and_health_content:- ",education_and_health_content,"\n ")
+                # Validate content before sending to OpenAI
         def validate_content(content):
             return content if content else "No data available."
 
@@ -3452,19 +3471,23 @@ async def locality_description(city: str,locality:str):
         
 
     try:
+
         def create_content(prompt,json_data):
             json_data = jsonable_encoder(json_data)
+            # print(json_data)
             completion = openai.ChatCompletion.create(
                 deployment_id="sqy-gpt4o-mini",
                 model="sqy-gpt4o-mini",
                 temperature=0.7,
+                n=3,
                 messages=[
-                    {"role": "system", "content": (f"{prompt}, If some key are empty in data and you know the exact true answer about that key, so you can use your anserw details in final response content.")},
-                    {"role": "user", "content": (f"city {city}, { json_data} ")}
+                    {"role": "system", "content": (f"{prompt}")},
+                    {"role": "user", "content": (f"city {city}, {json_data} ")},
+                    
                 ]
             )
         
-            get_content = completion.choices[0].message['content']
+            get_content = random.choice(completion.choices).message['content']
             result = get_content
             description = re.sub(r"[\([{})\]]", "", result)
             description = description.replace("\n","")
@@ -3481,7 +3504,7 @@ async def locality_description(city: str,locality:str):
 
     #------------------Overview--------------------
     locality_logger.info("Start overview creating")
-    overview = create_content(str(prompt_for_locality),str(f"{basic_info}. ")+str(metro_stations )+str(f"{micromarket}. " )+str(top_five_localities ))
+    overview = create_content(str(prompt_for_locality),str(f"and Mention the pincode in overview of this locality {basic_info}. ")+str(metro_stations )+str(f"{micromarket}. " )+str(top_five_localities ))
     response = [overview]
     
 
@@ -3576,7 +3599,7 @@ def upload_image(local_image_path):
     return image_url
 
 # Add your WordPress API URL
-wordpress_api_url = 'https://stage-www.squareyards.com/blog/wp-json/square/news-post-content'
+wordpress_api_url = 'https://www.squareyards.com/blog/wp-json/square/news-post-content'
 
 
 base_url = "https://www.business-standard.com/latest-news/page-{}"
@@ -3665,3 +3688,196 @@ async def start_scraping(background_tasks: BackgroundTasks):
 @app.get("/task_status/")
 async def get_task_status():
     return task_status
+
+
+
+# Optional: Endpoint to view metrics
+@app.get("/new_generater")
+async def view_news_type(news_url: str, service_type: str = Query(None, enum=["ET-Realty", "Construction world", "Realtyplus"])):
+    """
+    Endpoint to generate news based on the provided URL and service type.
+    
+    Args:
+        news_url (str): The URL of the news source.
+        service_type (str): The type of news service to generate the content from. 
+                             Options: "ET-Realty", "Construction world", "Realtyplus". Defaults to None.
+    
+    Returns:
+        The generated news content from the selected service type.
+    """
+    
+    if service_type == "Construction world":
+        return construction_world_news_generater(news_url)
+    
+    elif service_type == "Realtyplus":
+        return realtyplus_news_generated(news_url)
+    
+    return Etrealty_news_generated(news_url)
+        
+        
+
+
+PAA_PROMPT = """You are a real estate expert for Square Yards (squareyards.com). Generate Latest 6-7 highly relevant 'People Also Ask' questions and answers specific to the provided property listing URL.
+
+Requirements:
+1. Generate location and property-specific questions that real users commonly search for
+2. Provide detailed, factual answers incorporating local market insights
+3. Use natural language and long-tail keywords for better SEO
+4. Ensure all content is 100% unique and original
+5. Include relevant property metrics, market data, and location-specific information
+6. Focus on high-value information that aids buying/renting decisions
+
+Format the response in clean HTML using EXACTLY this structure:
+<div class="paa-section">
+    <div class="paa-item">
+        <h3>[QUESTION 1]?</h3>
+        <p>[DETAILED ANSWER 1 - 2-3 sentences with specific data points]</p>
+    </div>
+    <div class="paa-item">
+        <h3>[QUESTION 2]?</h3>
+        <p>[DETAILED ANSWER 2 - 2-3 sentences with specific data points]</p>
+    </div>
+    <!-- Continue pattern for remaining Q&As -->
+</div>
+
+Questions should cover:
+- Property prices and market trends
+- Location amenities and infrastructure
+- Investment potential
+- Property-specific features and benefits
+- Neighborhood insights
+
+Output only the HTML-formatted questions and answers without any additional text or explanations."""
+
+PAA_PROMPT ="""You are a real estate expert for Square Yards (squareyards.com). Generate 6-7 highly relevant 'People Also Ask' questions and answers specific to the provided property listing URL.
+
+Requirements:
+1. Generate location and property-specific questions that real users commonly search for
+2. Provide detailed, factual answers incorporating current market data and local insights
+3. Use natural language and long-tail keywords while maintaining readability
+4. Ensure all content is unique, verifiable, and backed by data where possible
+5. Include:
+   - Specific property metrics (price per sq ft, rental yields, etc.)
+   - Recent market trends and forecasts
+   - Location-specific infrastructure updates
+   - Comparison with nearby areas
+6. Focus on actionable information that directly impacts buying/renting decisions
+
+Question Categories (must cover all):
+1. Market Analysis
+   - Current prices and historical trends
+   - Future growth potential
+   - Market comparison with neighboring areas
+
+2. Location Deep-dive
+   - Connectivity and transportation
+   - Social infrastructure (schools, hospitals, markets)
+   - Upcoming development projects
+
+3. Property Investment
+   - Expected ROI
+   - Rental potential
+   - Resale value prospects
+
+4. Property Specifics
+   - Unique features and USPs
+   - Construction quality
+   - Developer track record
+
+5. Lifestyle & Community
+   - Target resident profile
+   - Social amenities
+   - Safety and security
+
+Output Format:
+<div class="paa-section">
+    <div class="paa-item">
+        <h3>{Clear, searchable question using natural language}?</h3>
+        <p>{Detailed 2-3 sentence answer with specific data points, market insights, and actionable information}</p>
+    </div>
+    <!-- Repeat for all questions -->
+</div>
+
+Guidelines for Answers:
+- Lead with the most important information
+- Include specific numbers, percentages, or timeframes
+- Reference reliable market data sources when available
+- Provide context for better understanding
+- Keep language professional but accessible
+- Avoid promotional or marketing language
+- Include relevant keywords naturally
+
+The output should contain only the HTML-formatted Q&As without additional text or explanations."""
+PAA_PROMPT = """You know everthing, i will ask anything to you , give me answer. i want response in this format :
+Output Format:
+<div class="paa-section">
+    <div class="paa-item">
+        <h3>{Clear, searchable question using natural language}?</h3>
+        <p>{Detailed 2-3 sentence answer with specific data points, market insights, and actionable information}</p>
+    </div>
+    <!-- Repeat for all questions -->
+</div>"""
+
+def validate_url(url: str) -> bool:
+
+    """Validate if the URL is from the expected domain."""
+    try:
+        parsed = urlparse(url)
+        return parsed.netloc.endswith('squareyards.com')
+    except Exception:
+        return False
+    
+#dubai agency description api on live
+@app.post("/google_paa")
+async def people_also_ask(url: str):
+    try:
+        # Validate URL
+        pass
+        # if not validate_url(str(url)):
+        #     # continue
+        #     return {
+        #         "response": "",
+        #         "status": "fail",
+        #         "url": url,
+        #         "message": "URL is not Valid."
+        #     }
+
+        # Make API call to OpenAI
+        try:
+            completion = openai.ChatCompletion.create(
+                deployment_id="sqy-gpt4o-mini",
+                model="sqy-gpt4o-mini",
+                temperature=0.7,
+                messages=[
+                    {"role": "system", "content": PAA_PROMPT},
+                    {"role": "user", "content": str(url)}
+                ]
+            )
+        except openai.error.OpenAIError as e:
+            # logger.error(f"OpenAI API error: {str(e)}")
+            return {
+                "response": "",
+                "status": "fail",
+                "url": url,
+                "message": "Opeanai API fail"
+            }
+
+        # Process the response
+        get_response = completion.choices[0].message['content']
+        get_response = str(get_response).replace("\n","")
+        
+        # Structure the response
+        response = {
+            "response": get_response,
+            "status": "success",
+            "url": str(url),
+            "message": "Get response successfully"
+        }
+        return response
+
+    except Exception as e:
+        # logger.error(f"Unexpected error: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail="An unexpected error occurred"
+        )

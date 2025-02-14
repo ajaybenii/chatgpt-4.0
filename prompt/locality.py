@@ -1,14 +1,19 @@
-prompt_for_locality = """You are a Indian real estate agent. Your task is to generate a detailed and appealing overview of the provided locality.  
-                    Ensure the description highlights aspects that are beneficial for families and professionals, focusing on convenience, connectivity, and amenities.
+prompt_for_locality = """Your task is to generate a compelling overview of the given locality.  
+Make sure the heading and the first sentence of the paragraph are **distinct and engaging** .
 
-                    Note-The final response of word length should less than 120 more than 90.
-                    Ensure that the heading is engaging and provides a snapshot of the area's appeal to potential residents or investors.
-                    
-                    ##Sample response format should be this :-
-                    <h2>Headline here</h2>
-                    <p>Locality overview here</p>"""
+### **Instructions:**
+1. **Check if the first few lines about the locality can be written based on trending SEO data**, but make sure the content is **unique and not copied from competitors**.
+2. The **heading should be unique** and reflect something different about the locality .
+3. The **paragraph must have a different starting sentence**. Avoid repetitive phrases like "stands out as" or "located in."
+4. Keep it **within 90-120 words** and ensure it appeals to families and professionals.
 
-prompt_for_indices = """You are a Indian real estate agent.
+### **Response Format:**
+<h2>[Creative Heading]</h2>  
+<p>[SEO-optimized and unique opening line] ... [Description of connectivity, lifestyle, amenities, etc.]</p>
+
+"""
+
+prompt_for_indices = """
                     Given the following raw data in JSON format, create a structured response with across connectivity, lifestyle, education & healthcare, and livability.
 
                     The format should include the following sections:
@@ -36,7 +41,7 @@ prompt_for_indices = """You are a Indian real estate agent.
                     <h4>Livability</h4>
                     <p>Livability paragrapgh here</p>"""
 
-market_overview_prompt = """You are a Indian real estate agent. Write a detailed real estate market overview for a specific locality or sector. Ensure the response is structured with proper headings and includes the following:
+market_overview_prompt = """Write a detailed real estate market overview for a specific locality or sector. Ensure the response is structured with proper headings and includes the following:
 
                     Market Overview: Start with a paragraph introducing the area, its appeal, and its real estate mix.
                     Prominent Developers: Include a paragraph highlighting key real estate developers contributing to the area's growth and quality projects.
@@ -63,7 +68,7 @@ market_overview_prompt = """You are a Indian real estate agent. Write a detailed
                     </ul>
                     <p>about project status paragrapgh in 30 word here</p>"""
 
-supply_demand_prompt = """You are a Indian real estate agent. Write a detailed analysis of property supply and demand trends for a specific real estate sector or locality. Structure the response with clear headings and include the following points:
+supply_demand_prompt = """ Write a detailed analysis of property supply and demand trends for a specific real estate sector or locality. Structure the response with clear headings and include the following points:
 
                     Property Supply Breakdown:
 
@@ -86,18 +91,18 @@ supply_demand_prompt = """You are a Indian real estate agent. Write a detailed a
                     <h4>Supply Breakdown</h4>
                     <p>The locality’s offers a robust mix of properties, making it appealing to a wide audience.</p>
                     <ul>
-                    <li>Property Types:write here</li>
-                    <li>Configurations: write here</li>
-                    <li>Price Range: write here</li>
+                    <li>Property Types: write here of 20-25 words</li>
+                    <li>Configurations: write here of 20-25 words</li>
+                    <li>Price Range: write here of 20-25 words</li>
                     </ul>
 
                     <h4>Demand Highlights</h4>
                     <p>The locality’s prime location and amenities have spurred consistent demand.</p>
 
                     <ul>
-                    <li>Property Types in Demand: write here</li>
-                    <li>Preferred Configurations: write here</li>
-                    <li>Budget Trends: write here</li>
+                    <li>Property Types in Demand: write  here of 20-25 words</li>
+                    <li>Preferred Configurations: write here of 20-25 words</li>
+                    <li>Budget Trends: write here of 20-25 words</li>
                     </ul>
 
                     """

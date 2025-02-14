@@ -21,7 +21,7 @@ class DataExtractor:
         """Get the names of the top five nearby localities, or fewer if less are available."""
         localities = self.json_data.get('nearByLocalities', [])
         names = [locality.get('subLocalityName', '') for locality in localities]
-        return ("Near by localities are ",names[:5])  # Return only the first 5 names, or fewer if less are available.
+        return ("Nearby localities are ",names[:5])  # Return only the first 5 names, or fewer if less are available.
 
     def get_nearby_localities(self) -> List[Dict]:
         """Get information about nearby localities."""
