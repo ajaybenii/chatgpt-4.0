@@ -46,7 +46,7 @@ openai.api_version = "2023-05-15"
 client_groq = Groq(api_key="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")
 
 # Add your WordPress API URL
-wordpress_api_url = 'https://stage-www.squareyards.com/blog/wp-json/square/news-post-content'
+wordpress_api_url = 'https://www.squareyards.com/blog/wp-json/square/news-post-content'
 
 def extract_names_from_text(text):
     completion = openai.ChatCompletion.create(

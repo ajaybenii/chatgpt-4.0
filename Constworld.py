@@ -61,7 +61,7 @@ def upload_image(local_image_path):
         return image_url
 
 # Add your WordPress API URL
-wordpress_api_url = 'https://stage-www.squareyards.com/blog/wp-json/square/news-post-content'
+wordpress_api_url = 'https://www.squareyards.com/blog/wp-json/square/news-post-content'
 
 def extract_names_from_text(text):
     # print("extract text call done")
