@@ -16,6 +16,9 @@ from PIL import Image, ImageDraw, ImageFont
 
 from google.cloud import storage
 from fastapi.param_functions import Query
+from fastapi.responses import StreamingResponse
+
+from news_prompt import prompt
 
 
 app = FastAPI(
@@ -131,58 +134,58 @@ def realtyplus_news_generated(url):
     extracted_devep = extract_names_from_text(fetch_and_extract_text(url))
 
 
-    possible_sample = {
-        "second" : """<h2>Sample Subheadline 1</h2>
-            <p>Write the content here and should be contain 200-300 words.</p>
-                """,
-    "first" : """<h2>Sample conclusion </h2>
-                    <p>Write conclusion paragraph here and should be contain 200-300 words, offering additional context or insights.</p>
-            """,
-        "third" : """<h2>Sample Conclusion</h2>
-                <p>Write conclusion paragraph and should be contain 50-80 words, offering additional context or insights.</p>
-                <p>
-                <ul>
-                    <li>First bullet point</li>
-                    <li>Second bullet point</li>
-                    <li>Third bullet point</li>
-                    <li>fourth bullet point</li>
-                    <li>fifth bullet point</li>
-                    <li>sixth bullet point</li>
-                </ul>
-                </p>
-                """
-    }
+    # possible_sample = {
+    #     "second" : """<h2>Sample Subheadline 1</h2>
+    #         <p>Write the content here and should be contain 200-300 words.</p>
+    #             """,
+    # "first" : """<h2>Sample conclusion </h2>
+    #                 <p>Write conclusion paragraph here and should be contain 200-300 words, offering additional context or insights.</p>
+    #         """,
+    #     "third" : """<h2>Sample Conclusion</h2>
+    #             <p>Write conclusion paragraph and should be contain 50-80 words, offering additional context or insights.</p>
+    #             <p>
+    #             <ul>
+    #                 <li>First bullet point</li>
+    #                 <li>Second bullet point</li>
+    #                 <li>Third bullet point</li>
+    #                 <li>fourth bullet point</li>
+    #                 <li>fifth bullet point</li>
+    #                 <li>sixth bullet point</li>
+    #             </ul>
+    #             </p>
+    #             """
+    # }
     
-    # Select a random position
-    random_sample_selection = random.choice(list(possible_sample.keys()))
-    final_sample = possible_sample[random_sample_selection]
+    # # Select a random position
+    # random_sample_selection = random.choice(list(possible_sample.keys()))
+    # final_sample = possible_sample[random_sample_selection]
     
-    prompt = f"""You are a journalist of Square Times Bureau for a renowned news outlet, tasked with creating SEO-friendly, compelling, and well-structured news articles based on the data provided to you.
+    # prompt = f"""You are a journalist of Square Times Bureau for a renowned news outlet, tasked with creating SEO-friendly, compelling, and well-structured news articles based on the data provided to you.
 
-        Your goal is to craft an in-depth news article with bold and concise subheadlines that break down the content into digestible sections. The content may include updates on recent developments, announcements, or events across various sectors, such as real estate, technology, industry, or infrastructure.
-        The sentance line not more than 20 words.
-        The article should adhere to the following guidelines:
+    #     Your goal is to craft an in-depth news article with bold and concise subheadlines that break down the content into digestible sections. The content may include updates on recent developments, announcements, or events across various sectors, such as real estate, technology, industry, or infrastructure.
+    #     The sentance line not more than 20 words.
+    #     The article should adhere to the following guidelines:
 
-        1. SEO-Friendly: Ensure the use of relevant keywords naturally throughout the article to improve search engine visibility.
-        2. Informative: Accurate and well-researched information relevant to the topic.
-        3. Engaging: Write captivating content that grabs the reader's attention while maintaining a professional tone.
+    #     1. SEO-Friendly: Ensure the use of relevant keywords naturally throughout the article to improve search engine visibility.
+    #     2. Informative: Accurate and well-researched information relevant to the topic.
+    #     3. Engaging: Write captivating content that grabs the reader's attention while maintaining a professional tone.
 
 
-        Start with direct news paragrapgh below is sample.
-        Note- I want All paragrapghs length should be more than 250 words.
+    #     Start with direct news paragrapgh below is sample.
+    #     Note- I want All paragrapghs length should be more than 250 words.
 
-        ### final Response Format should be this:
-        <p>First paragraph: Provide an overview of the news, covering the key points and background in 200-300 words.</p>
+    #     ### final Response Format should be this:
+    #     <p>First paragraph: Provide an overview of the news, covering the key points and background in 200-300 words.</p>
 
-        <h2>Sample Subheadline 1</h2>
-        <p>Write the first section’s content here, elaborating on the details with 200-350 words.</p>
+    #     <h2>Sample Subheadline 1</h2>
+    #     <p>Write the first section’s content here, elaborating on the details with 200-350 words.</p>
 
-        <h2>Sample Subheadline 2</h2>
-        <p>Write the second section’s content here, including 200-350 words.</p>
-        <p>Write additional paragraph text here, ensuring it is between 200-300 words for further elaboration.</p>
+    #     <h2>Sample Subheadline 2</h2>
+    #     <p>Write the second section’s content here, including 200-350 words.</p>
+    #     <p>Write additional paragraph text here, ensuring it is between 200-300 words for further elaboration.</p>
         
-        {final_sample}
-        """
+    #     {final_sample}
+    #     """
     chat_completion = openai.ChatCompletion.create(
                             deployment_id="sqy-gpt4o-mini",
                             model="sqy-gpt4o-mini",
@@ -379,7 +382,11 @@ def realtyplus_news_generated(url):
     wordpress_response = requests.post(wordpress_api_url, json=wordpress_data)
 
     if wordpress_response.status_code == 200:
-        return {"Response":"News article of Realtyplus is generaterd successfully."}
+            buffer = BytesIO()
+            img.save(buffer, format="png", quality=100)
+            buffer.seek(0)
+
+            return StreamingResponse(buffer, media_type="image/png")
 
     else:
         return json.dumps({"message": f"Failed to post to WordPress API. Status code: {wordpress_response.status_code}"})

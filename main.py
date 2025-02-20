@@ -42,6 +42,7 @@ from fastapi.responses import JSONResponse
 from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
 from locality_data_extract import DataExtractor
+from fastapi.responses import StreamingResponse
 
 from Constworld import construction_world_news_generater
 from Realtyplus import realtyplus_news_generated
@@ -84,6 +85,7 @@ from prompt.canada_project import (canada_prompt,
 
 from prompt.dotcom_listing import Listing_description_prompt
 from prompt.dse_faq import DSE_FAQ_PROMPT
+from all_type_news import all_type_news_generated
 
 
 app = FastAPI(
@@ -418,7 +420,7 @@ def extract_names_from_text(text):
             "locality_name": locality_name
             }
 
-def generate_news(url, nm, header):
+def buisness_standard_news(url):
     """
     Extract news content from a given URL using BeautifulSoup.
     """
@@ -724,10 +726,14 @@ def generate_news(url, nm, header):
     wordpress_response = requests.post(wordpress_api_url, json=wordpress_data)
 
     if wordpress_response.status_code == 200:
-        print(f"{nm}. News article generaterd successfully.")
+            buffer = BytesIO()
+            img.save(buffer, format="png", quality=100)
+            buffer.seek(0)
+
+            return StreamingResponse(buffer, media_type="image/png")
 
     else:
-      print({"message": f"Failed to post to WordPress API. Status code: {wordpress_response.status_code}"})
+      return ({"message": f"Failed to post to WordPress API. Status code: {wordpress_response.status_code}"})
     
 @app.get("/")
 async def root():
@@ -3569,9 +3575,7 @@ async def reset_metrics(service_type: str):
     
     return {"message": f"Metrics reset for {service_type} service"}
 
-
 client_groq = Groq(api_key="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")
-
 
 def upload_image(local_image_path):
     # Load the JSON credentials from an environment variable
@@ -3601,7 +3605,6 @@ def upload_image(local_image_path):
 # Add your WordPress API URL
 wordpress_api_url = 'https://www.squareyards.com/blog/wp-json/square/news-post-content'
 
-
 base_url = "https://www.business-standard.com/latest-news/page-{}"
 csv_filename = 'unique_href_latest2.csv'
 
@@ -3610,90 +3613,88 @@ headers = {
     "User-Agent": ua.random,  # Random User-Agent on every request
 }
 
-# Global status variable and lock to handle task status safely in a multi-threaded environment
-task_status = {"status": "Idle", "current_url": "", "index": 0}
-task_lock = Lock()
+# # Global status variable and lock to handle task status safely in a multi-threaded environment
+# task_status = {"status": "Idle", "current_url": "", "index": 0}
+# task_lock = Lock()
 
-def scrape_and_process_data():
-    global task_status
-    with task_lock:
-        task_status["status"] = "In Progress"
-        task_status["current_url"] = ""
-        task_status["index"] = 0
+# def scrape_and_process_data():
+#     global task_status
+#     with task_lock:
+#         task_status["status"] = "In Progress"
+#         task_status["current_url"] = ""
+#         task_status["index"] = 0
 
-    try:
-        # Step 1: Scrape URLs from the website
-        unique_urls = set()
+#     try:
+#         # Step 1: Scrape URLs from the website
+#         unique_urls = set()
 
-        for page_num in range(1, 3):  # Scrape first 2 pages (adjust range as needed)
-            url = base_url.format(page_num)
-            print(f"Fetching page: {url}")
-            response = requests.get(url, headers=headers, timeout=10)
-            response.raise_for_status()  # Raise HTTPError for bad responses (4xx and 5xx)
+#         for page_num in range(1, 3):  # Scrape first 2 pages (adjust range as needed)
+#             url = base_url.format(page_num)
+#             print(f"Fetching page: {url}")
+#             response = requests.get(url, headers=headers, timeout=10)
+#             response.raise_for_status()  # Raise HTTPError for bad responses (4xx and 5xx)
 
-            # Parse the page content
-            soup = BeautifulSoup(response.text, 'html.parser')
+#             # Parse the page content
+#             soup = BeautifulSoup(response.text, 'html.parser')
 
-            # Find article links
-            links = soup.select('a.smallcard-title')  # Use the correct CSS selector
-            for link in links:
-                href = link.get('href')
-                if href and href.startswith('http'):
-                    unique_urls.add(href)
+#             # Find article links
+#             links = soup.select('a.smallcard-title')  # Use the correct CSS selector
+#             for link in links:
+#                 href = link.get('href')
+#                 if href and href.startswith('http'):
+#                     unique_urls.add(href)
 
-            # Add a delay between requests to avoid overwhelming the server
-            time.sleep(2)
+#             # Add a delay between requests to avoid overwhelming the server
+#             time.sleep(2)
 
-        # Save URLs to a CSV file
-        with open(csv_filename, 'w', newline='', encoding='utf-8') as csvfile:
-            writer = csv.writer(csvfile)
-            writer.writerow(['URL'])
-            for url in unique_urls:
-                writer.writerow([url])
+#         # Save URLs to a CSV file
+#         with open(csv_filename, 'w', newline='', encoding='utf-8') as csvfile:
+#             writer = csv.writer(csvfile)
+#             writer.writerow(['URL'])
+#             for url in unique_urls:
+#                 writer.writerow([url])
 
-        print(f"Found {len(unique_urls)} unique URLs")
+#         print(f"Found {len(unique_urls)} unique URLs")
 
-        # Step 2: Extract content from each URL
-        for i, url in enumerate(unique_urls):
-            with task_lock:
-                task_status["index"] = i + 1
-                task_status["current_url"] = (f"Processing URL {i + 1}/25: {url}")
-            print(f"Processing URL {i + 1}/{len(unique_urls)}: {url}")
-            # Call your content extraction function (e.g., generate_news)
-            # Replace this with your function logic
-            generate_news(url, i + 1, headers)
-            time.sleep(2)  # Delay for politeness
+#         # Step 2: Extract content from each URL
+#         for i, url in enumerate(unique_urls):
+#             with task_lock:
+#                 task_status["index"] = i + 1
+#                 task_status["current_url"] = (f"Processing URL {i + 1}/25: {url}")
+#             print(f"Processing URL {i + 1}/{len(unique_urls)}: {url}")
+#             # Call your content extraction function (e.g., generate_news)
+#             # Replace this with your function logic
+#             generate_news(url, i + 1, headers)
+#             time.sleep(2)  # Delay for politeness
 
-            # break
-            if i == 25:
-                break
+#             # break
+#             if i == 25:
+#                 break
 
-        with task_lock:
-            task_status["status"] = "Completed"
-            task_status["current_url"] = ""
+#         with task_lock:
+#             task_status["status"] = "Completed"
+#             task_status["current_url"] = ""
 
-    except requests.exceptions.RequestException as e:
-        print(f"Request error: {e}")
-        with task_lock:
-            task_status["status"] = f"Error: {e}"
-            task_status["current_url"] = ""
+#     except requests.exceptions.RequestException as e:
+#         print(f"Request error: {e}")
+#         with task_lock:
+#             task_status["status"] = f"Error: {e}"
+#             task_status["current_url"] = ""
 
-# FastAPI endpoint to trigger background task
-@app.get("/start_scraping/")
-async def start_scraping(background_tasks: BackgroundTasks):
-    background_tasks.add_task(scrape_and_process_data)
-    return {"message": "Scraping and processing started in the background!"}
+# # FastAPI endpoint to trigger background task
+# @app.get("/start_scraping/")
+# async def start_scraping(background_tasks: BackgroundTasks):
+#     background_tasks.add_task(scrape_and_process_data)
+#     return {"message": "Scraping and processing started in the background!"}
 
-# Endpoint to check the task status
-@app.get("/task_status/")
-async def get_task_status():
-    return task_status
-
-
+# # Endpoint to check the task status
+# @app.get("/task_status/")
+# async def get_task_status():
+#     return task_status
 
 # Optional: Endpoint to view metrics
 @app.get("/news_generater")
-async def view_news_type(news_url: str, service_type: str = Query(None, enum=["ET-Realty", "Construction world", "Realtyplus"])):
+async def view_news_type(news_url: str, service_type: str = Query("others", enum=["ET-Realty", "Construction world", "Realtyplus","Business Standard"])):
     """
     Endpoint to generate news based on the provided URL and service type.
     
@@ -3712,11 +3713,46 @@ async def view_news_type(news_url: str, service_type: str = Query(None, enum=["E
     elif service_type == "Realtyplus":
         return realtyplus_news_generated(news_url)
     
-    return Etrealty_news_generated(news_url)
-        
-        
+    elif service_type == "Business Standard":
+        return buisness_standard_news(news_url)
+    
+    elif service_type == "ET-Realty":
+        return Etrealty_news_generated(news_url)
+    
+    return all_type_news_generated(news_url)
 
-
+# @app.get("/any_news_generater")
+# async def view_news_type(news_headline:str, news_content: str, service_type: str):
+#     """
+#     Endpoint to generate news based on the provided URL and service type.
+    
+#     Args:
+#         news_url (str): The URL of the news source.
+#         service_type (str): The type of news service to generate the content from. 
+#                              Options: "ET-Realty", "Construction world", "Realtyplus". Defaults to None.
+    
+#     Returns:
+#         The generated news content from the selected service type.
+#     """
+    
+#     def create_content(prompt,news_content):
+#             json_data = jsonable_encoder(json_data)
+#             # print(json_data)
+#             completion = openai.ChatCompletion.create(
+#                 deployment_id="sqy-gpt4o-mini",
+#                 model="sqy-gpt4o-mini",
+#                 temperature=0.7,
+#                 n=3,
+#                 messages=[
+#                     {"role": "system", "content": (f"{prompt}")},
+#                     {"role": "user", "content": (f"city {city}, {json_data} ")},
+                    
+#                 ]
+#             )
+        
+#             get_content = random.choice(completion.choices).message['content']
+            
+        
 PAA_PROMPT = """You are a real estate expert for Square Yards (squareyards.com). Generate Latest 6-7 highly relevant 'People Also Ask' questions and answers specific to the provided property listing URL.
 
 Requirements:
@@ -3808,6 +3844,7 @@ Guidelines for Answers:
 - Include relevant keywords naturally
 
 The output should contain only the HTML-formatted Q&As without additional text or explanations."""
+
 PAA_PROMPT = """You know everthing, i will ask anything to you , give me answer. i want response in this format :
 Output Format:
 <div class="paa-section">
