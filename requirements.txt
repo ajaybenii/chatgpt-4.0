@@ -12,3 +12,4 @@ pillow
 google-cloud-storage
 lxml
 streamlit
+google-genai
