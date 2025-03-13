@@ -35,14 +35,16 @@ gemini_client = genai.Client(
 
 gemini_tools = [types.Tool(google_search=types.GoogleSearch())]
 
-# Centralized content creation function with updated gemini-template
+# Centralized content creation function with combined prompt
 def create_content_locality_description(prompt: str, input_data: Dict[str, Any], model: str, city: str = "", locality: str = "") -> str:
     try:
-        if model == "gemini(Undefined Template)":
-            # Full SEO-friendly description for gemini-template
+        if model == "gemini-no-template":
+            # Full SEO-friendly description for gemini-no-template (unchanged)
+            url = f"https://www.squareyards.com/getlocalitydatafordesc/{city.lower()}/{locality.lower().replace(' ', '-')}"
             full_query = f"""
             Provide a detailed and SEO-friendly description for {locality}, {city}. 
-            Utilize data from "https://stage-www.squareyards.com/getlocalitydatafordesc/{city.lower()}/{locality.lower().replace(' ', '-')}" and incorporate trending "People Also Ask" (PAA) and "People Also Search For" data.
+            Utilize data from {url} and incorporate trending "People Also Ask" (PAA) data.
+            Descriptions should be in easy language and should look human-generated, not robotic.
             The description should cover:
             - Location and connectivity (metro, roads, proximity to business hubs)
             - Lifestyle and livability (amenities, green spaces, safety)
@@ -53,10 +55,10 @@ def create_content_locality_description(prompt: str, input_data: Dict[str, Any],
             - Advantages and disadvantages
             - Future prospects
             - FAQs based on PAA(People Also Ask)
-            - i want response in proper tags,dont add any special character and please direct give response dont mention any suggestion line or note.
+            - I want response in proper tags, dont add any special character and please direct give response dont mention any suggestion line or note.
             Use bullet points and tables where appropriate. Focus on information relevant to homebuyers and investors.
             ### **Response Format should be this:**
-            The heading should be in <h2> heading </h2> for each section and paragrapgh should be in <p> paragrapgh</p> , i used your response direct on my UI, so give response according to UI.
+            The heading should be in <h2> heading </h2> for each section and paragraph should be in <p> paragraph</p> , i used your response direct on my UI, so give response according to UI.
             <h2>People Also Ask</h2>
             <div class="panel">
                 <div class="panelHeader">
@@ -74,42 +76,134 @@ def create_content_locality_description(prompt: str, input_data: Dict[str, Any],
                 config=types.GenerateContentConfig(
                     tools=gemini_tools,
                     max_output_tokens=8192,
-                    system_instruction="You are a helpful real-estate agent. I want response in proper tags and please direct give response dont mention any suggestion line or note.",
+                    system_instruction="You are a helpful real-estate agent. I want response in proper tags and please direct give response dont mention any suggestion line or note. You may include additional useful details from Google search like PAA or pincode.",
                     temperature=0.7,
                 )
             )
             content = response.text
         else:
-            # Original behavior for gemini and chatgpt
-            full_query = f"{prompt}\n\nData: {json.dumps(input_data)}"
-            if model == "gemini(Fixed Template)":
+            # Combined prompt for gemini and chatgpt
+            full_query = f"""
+            Using the provided JSON data, generate a complete and structured locality description for {locality}, {city}. 
+            Descriptions should be in easy language, SEO-friendly, and human-generated (not robotic). 
+            Include the following sections with their specific guidelines and formatting:
+
+            ### 1. Overview
+            - Write a concise and informative description (50-60 words) highlighting key features.
+            - Include location, connectivity, housing options, and nearby prominent areas.
+            - Data: basic_info, micromarket, supply_demand_data, top_five_localities
+            ### **Format:**
+            <h2>[Creative Heading]</h2>
+            <p>[Description]</p>
+
+            ### 2. Connectivity & Infrastructure
+            - Emphasize seamless access to key areas and business hubs (70-80 words).
+            - Use data: connecting_roads, indices_data.connectivity, metro_stations
+            ### **Format:**
+            <h2>[Creative Heading]</h2>
+            <p>[Description]</p>
+
+            ### 3. Real Estate Trends
+            - Cover property types, price trends, BHK distribution, and buyer preferences.
+            - Use data: supply_demand_data, nearby_localities
+            ### **Format:**
+            <h2>[Creative Heading]</h2>
+            <ul>
+                <li><strong>Property Types:</strong> [25 words]</li>
+                <li><strong>Price Trends:</strong> [25 words]</li>
+                <li><strong>BHK Distribution:</strong> [25 words]</li>
+                <li><strong>Price Range:</strong> [25 words]</li>
+            </ul>
+
+            ### 4. Lifestyle & Amenities
+            - Highlight premium lifestyle offerings.
+            - Use data: indices_data.livability.facilities.Education, indices_data.livability.facilities.Healthcare, 
+            indices_data.lifestyle.facilities.Shopping, indices_data.lifestyle.facilities.Entertainment, connecting_roads
+            
+            ### **Format:**
+            <h2>[Creative Heading]</h2>
+            <ul>
+                <li><strong>Educational Institutions:</strong> [20 words]</li>
+                <li><strong>Healthcare Facilities:</strong> [20 words]</li>
+                <li><strong>Recreational & Shopping Centers:</strong> [20 words]</li>
+                <li><strong>Green Spaces & Sports Facilities:</strong> [20 words]</li>
+            </ul>
+
+            ### 5. Nearby Localities & Their Impact
+            - Highlight influence on property pricing, rental demand, and luxury housing (max 4-5 points).
+            - Use data: nearby_localities (distances, avg_price_per_sqft)
+            - Max 4-5 bullet points.
+            ### **Format:**
+            <h2>[Creative Heading]</h2>
+            <ul>
+                <li><strong>[Locality Name] ([Distance]):</strong> [Impact]</li>
+                <li><strong>[Locality Name] ([Distance]):</strong> [Impact]</li>
+                <li><strong>[Locality Name] ([Distance]):</strong> [Impact]</li>
+                <li><strong>[Locality Name] ([Distance]):</strong> [Impact]</li>
+            </ul>
+
+            ### 6. Why Invest
+            - Highlight demand, connectivity, and future growth potential.
+            - Use data: supply_demand_data.sale.property_types, connecting_roads
+            ### **Format:**
+            <h2>[Creative Heading]</h2>
+            <ul>
+                <li><strong>Strong Demand:</strong> [25 words]</li>
+                <li><strong>Proximity to Business Hubs:</strong> [25 words]</li>
+                <li><strong>Future Growth Potential:</strong> [25 words]</li>
+            </ul>
+
+            ### 7. People Also Ask
+            - Provide 4-5 FAQs based on connectivity, livability, education, and healthcare.
+            - Use data: indices_data.connectivity, indices_data.livability, indices_data.education, indices_data.health
+            ### **Format:**
+            <h2>People Also Ask</h2>
+            <div class="panel">
+                <div class="panelHeader">
+                    <strong>Q: [Question]</strong>
+                    <em class="icon-arrow-down"></em>
+                </div>
+                <div class="panelBody">
+                    <p>[Answer]</p>
+                </div>
+            </div>
+
+            ### Guidelines:
+            - I want response in proper tags, no special characters, and direct response (no notes/suggestions).
+            - Use bullet points and structured format where specified.
+            - Focus on homebuyers and investors.
+
+            ### Data:
+            {json.dumps(input_data)}
+            """
+            if model == "gemini":
                 response = gemini_client.models.generate_content(
                     model="gemini-2.0-flash-001",
                     contents=full_query,
                     config=types.GenerateContentConfig(
                         tools=gemini_tools,
                         max_output_tokens=8192,
-                        system_instruction="You are a helpful real-estate agent. I want response in proper tags and please direct give response dont mention any suggestion line or note.",
+                        system_instruction="You are a helpful real-estate agent. I want response in proper tags and please direct give response dont mention any suggestion line or note .You may include additional useful details from Google search like PAA or pincode.",
                         temperature=0.9,
                     )
                 )
-                content = str(response.text).replace("html","")
+                content = str(response.text).replace("html", "")
             else:  # ChatGPT
                 completion = openai.ChatCompletion.create(
                     deployment_id="sqy-gpt4o-mini",
                     model="sqy-gpt4o-mini",
                     temperature=0.9,
                     top_p=0.9,
-                    n=3,
+                    n=1,  # Single response for simplicity
                     messages=[
                         {
                             "role": "system",
-                            "content": "You are a helpful real-estate agent. Ensure the final response feels human-written, not machine-generated. Here are the main details: " + prompt
+                            "content": "You are a helpful real-estate agent. Ensure the final response feels human-written, not machine-generated. Generate the response in proper HTML tags as per the prompt."
                         },
-                        {"role": "user", "content": json.dumps(input_data)}
+                        {"role": "user", "content": full_query}
                     ]
                 )
-                content = random.choice(completion.choices).message['content']
+                content = completion.choices[0].message['content']
 
         cleaned_content = re.sub(r"[\([{})\]]|`|\*|#", "", content).replace("\n", "")
         return cleaned_content
@@ -125,7 +219,7 @@ def main():
     with st.form(key='locality_form'):
         city = st.text_input("City", "")
         locality = st.text_input("Locality", "")
-        model = st.selectbox("Select Model", ["gemini(Undefined Template)","gemini(Fixed Template)", "chatgpt"], index=0)
+        model = st.selectbox("Select Model", ["gemini-no-template", "gemini", "chatgpt"], index=0)
         submit_button = st.form_submit_button(label='Generate Description')
 
     if submit_button and city and locality:
@@ -152,410 +246,22 @@ def main():
             top_five_localities = extractor.get_top_five_localities()
             nearby_localities = extractor.get_nearby_localities()
 
-            response_sections = []
+            # Combine all data into a single dictionary
+            all_data = {
+                "basic_info": basic_info,
+                "micromarket": micromarket,
+                "supply_demand_data": supply_demand_data,
+                "indices_data": indices_data,
+                "developers_data": developers_data,
+                "connecting_roads": connecting_roads,
+                "metro_stations": metro_stations,
+                "top_five_localities": top_five_localities,
+                "nearby_localities": nearby_localities
+            }
 
-            if model == "gemini(Undefined Template)":
-                # For gemini-template, generate the full description in one go
-                full_description = create_content_locality_description("", {}, model, city, locality)
-                response_sections.append(full_description)
-            else:
-                # Original section-by-section generation for gemini and chatgpt
-                # 1. Overview
-                overview_prompt = f"""
-                Using the provided data, generate a description for the "summary" section about {locality}, {city}. 
-                Write a concise and informative description of a residential locality, highlighting its key features.
-                Include details about its location, connectivity, housing options, and nearby prominent areas.
-                Keep the tone professional and engaging, making it user easy readable.
-                - i want Easiest Language and Most Human-Written response.
-                - I just want response, dont write anything beyond the response.
-                ### **Response Format should be this:**
-                <h2>[Creative Heading]</h2>  
-                <p>[Striking opener and Location and nearby key areas (50-60 words)]</p>
-                """
-                overview_data = {
-                    "basic_info": basic_info,
-                    "micromarket": micromarket,
-                    "supply_demand_data": supply_demand_data,
-                    "top_five_localities": top_five_localities
-                }
-                overview = create_content_locality_description(overview_prompt, overview_data, model)
-                response_sections.append(overview)
-
-                # 2. Connectivity & Infrastructure
-                connectivity_prompt = f"""
-                Using the provided JSON data, generate a description for the "Connectivity & Infrastructure" section about {locality}, {city}.
-                Use the following data: connecting_roads, indices_data.connectivity and metro_stations.
-                Emphasize seamless access to key areas and business hubs.
-                - i want Easiest Language and Most Human-Written response.
-                - I just want response, dont write anything beyond the response.
-                ### **Response Format should be this:**
-                <h2>[Creative Heading]</h2>  
-                <p>[Striking opener and Location, property options and nearby key areas using 80-100 words]</p>
-                """
-                connectivity_data = {
-                    "indices_data": indices_data,
-                    "connecting_roads": connecting_roads,
-                    "metro_stations": metro_stations
-                }
-                connectivity = create_content_locality_description(connectivity_prompt, connectivity_data, model)
-                response_sections.append(connectivity)
-
-                # 3. Real Estate Trends
-                real_estate_prompt = f"""
-                Write a structured and insightful overview of real estate trends for {locality}, {city}.
-                ### **Guidelines:**
-                - Use a clear and engaging heading.
-                - Cover key trends, including property types, price trends, BHK distribution, and buyer preferences.
-                - Present data in a structured and easy-to-read format.
-                - Ensure the tone is informative and relevant to homebuyers and investors.
-                - i want Easiest Language and Most Human-Written response.
-                - I just want response, dont write anything beyond the response.
-                ### **Response Format should be this:**
-                <h2>[Creative Heading]</h2>
-                <ul>
-                    <li><strong>Property Types:</strong> [Breakdown of property supply and key offerings (25 words paragraph)]</li>
-                    <li><strong>Price Trends:</strong> [Insights into price per sq. ft. in nearby localities (25 words paragraph)]</li>
-                    <li><strong>BHK Distribution:</strong> [Popular configurations and their market share (25 words paragraph)]</li>
-                    <li><strong>Price Range:</strong> [Buyer preferences across different budget segments (25 words paragraph)]</li>
-                </ul> 
-                """
-                real_estate_data = {
-                    "supply_demand_data": supply_demand_data,
-                    "nearby_localities": nearby_localities
-                }
-                real_estate = create_content_locality_description(real_estate_prompt, real_estate_data, model)
-                response_sections.append(real_estate)
-
-                # 4. Lifestyle & Amenities
-                lifestyle_prompt = f"""
-                Using the provided JSON data, generate a detailed and engaging "Lifestyle & Amenities" section for {locality}, {city}. 
-                ### **Guidelines:**
-                - Highlight premium lifestyle offerings, including top residential and commercial developments.
-                - Use `indices_data.livability.facilities.Education` for schools.
-                - Use `indices_data.livability.facilities.Healthcare` for hospitals.
-                - Use `indices_data.lifestyle.facilities.Shopping` for shopping centers.
-                - Use `indices_data.lifestyle.facilities.Entertainment` for recreational and fitness options.
-                - Use `connecting_roads` for road-related amenities and accessibility.
-                - i want Easiest Language and Most Human-Written response.
-                - I just want response, dont write anything beyond the response.
-                
-                ### **Response Format should be this:**
-                <h2>[Creative Heading]</h2>
-                <ul>
-                    <li><strong>Educational Institutions:</strong> [20 words]</li>
-                    <li><strong>Healthcare Facilities:</strong> [20 words]</li>
-                    <li><strong>Recreational & Shopping Centers:</strong> [20 words]</li>
-                    <li><strong>Green Spaces & Sports Facilities:</strong> [20 words]</li>
-                </ul>
-                """
-                lifestyle_data = {
-                    "indices_data": indices_data,
-                    "connecting_roads": connecting_roads
-                }
-                lifestyle = create_content_locality_description(lifestyle_prompt, lifestyle_data, model)
-                response_sections.append(lifestyle)
-
-                # 5. Nearby Localities & Their Impact
-                nearby_prompt = f"""
-                Using the provided JSON data, generate a detailed and structured "Nearby Localities & Their Impact" section for {locality}, {city}. 
-                ### **Guidelines:**
-                - Use `nearby_localities` to extract details such as distances and `avg_price_per_sqft`.
-                - Highlight how each locality influences {locality}, focusing on property pricing, rental demand, and luxury housing.
-                - Present data in an easy-to-read format with clear impact points.
-                - Max 4-5 bullet points.
-                - i want Easiest Language and Most Human-Written response.
-                - I just want response, dont write anything beyond the response.
-                ### **Response Format should be this:**
-                <h2>[Creative Heading]</h2>
-                <ul>
-                    <li><strong>[Nearby Locality Name] ([Distance]):</strong> [Impact on {locality}, including price trends, rental demand, and market position]</li>
-                    <li><strong>[Nearby Locality Name] ([Distance]):</strong> [Impact on {locality}, including price trends, rental demand, and market position]</li>
-                    <li><strong>[Nearby Locality Name] ([Distance]):</strong> [Impact on {locality}, including price trends, rental demand, and market position]</li>
-                </ul>
-                """
-                nearby_data = {"nearby_localities": nearby_localities}
-                nearby = create_content_locality_description(nearby_prompt, nearby_data, model)
-                response_sections.append(nearby)
-
-                # 6. Why Invest
-                investment_prompt = f"""
-                Using the provided JSON data, generate a compelling "Why Invest in {locality}?" section for {locality}, {city}. 
-                ### **Guidelines:**
-                - Use `supply_demand_data.sale.property_types` to highlight the demand for builder floors and apartments.
-                - Leverage `connecting_roads` to emphasize proximity to business hubs and its impact on rental yields.
-                - Make logical assumptions about upcoming developments based on infrastructure growth trends.
-                - i want Easiest Language and Most Human-Written response.
-                - I just want response, dont write anything beyond the response.
-                 ### **Response Format should be this:**
-                <h2>[Creative Heading]</h2>
-                <ul>
-                    <li><strong>Strong Demand:</strong> [Highlight high demand for specific property types and its impact on investment potential (25 words)]</li>
-                    <li><strong>Proximity to Business Hubs:</strong> [Explain connectivity advantages and their role in rental appreciation (25 words)]</li>
-                    <li><strong>Future Growth Potential:</strong> [Discuss ongoing/upcoming developments and their expected impact on property values (25 words)]</li>
-                </ul>
-                """
-                investment_data = {
-                    "supply_demand_data": supply_demand_data,
-                    "connecting_roads": connecting_roads
-                }
-                investment = create_content_locality_description(investment_prompt, investment_data, model)
-                response_sections.append(investment)
-
-                # 7. People Also Ask
-                paa_prompt = f"""
-                Using the provided data, generate a structured "People Also Ask (PAA)" section for {locality}, {city}. 
-                ### **Guidelines:**
-                - Use `indices_data.connectivity` to describe connectivity and transport options.
-                - Utilize `indices_data.livability` for insights on schools, hospitals, and amenities.
-                - Leverage `indices_data.education` and `indices_data.health` for detailed educational and healthcare information.
-                - i want Easiest Language and Most Human-Written response.
-                - I just want response, dont write anything beyond the response.
-                
-                ### **Response Format should be this**
-                <h2>People Also Ask</h2>
-                <div class="panel">
-                    <div class="panelHeader">
-                        <strong>Q: [Your Question Here]</strong>
-                        <em class="icon-arrow-down"></em>
-                    </div>
-                    <div class="panelBody">
-                        <p>[Your Answer Here]</p>
-                    </div>
-                </div>
-                """
-                paa_data = {"indices_data": indices_data}
-                paa = create_content_locality_description(paa_prompt, paa_data, model)
-                response_sections.append(paa)
-
-            # Combine and display
-            final_response = "\n\n".join(response_sections).replace("\n", "")
-            st.markdown(final_response, unsafe_allow_html=True)
+            # Generate description
+            full_description = create_content_locality_description("", all_data, model, city, locality)
+            st.markdown(full_description, unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
-
-# # Centralized content creation function (adapted for Streamlit)
-# def create_content_locality_description(prompt: str, input_data: Dict[str, Any]) -> str:
-#     try:
-#         input_data = jsonable_encoder(input_data)  # Ensure JSON compatibility
-#         completion = openai.ChatCompletion.create(
-#             deployment_id="sqy-gpt4o-mini",
-#             model="sqy-gpt4o-mini",
-#             temperature=0.9,
-#             top_p=0.9,
-#             n=3,
-#             messages=[
-#                 {"role": "system", "content": "Write the response as if you’re a friendly, knowledgeable real estate agent speaking naturally to a client. Avoid robotic or overly formal language, and use vivid, relatable descriptions to make it engaging. Ensure the final response feels human-written, not machine-generated. Here are the main details: " + prompt},
-#                 {"role": "user", "content": json.dumps(input_data)}  # Clean JSON dump
-#             ]
-#         )
-#         content = random.choice(completion.choices).message['content']
-#         # Clean up unwanted characters
-#         cleaned_content = re.sub(r"[\([{})\]]|`|\*|#", "", content).replace("\n", "")
-#         return cleaned_content
-#     except Exception as e:
-#         st.error(f"Content creation failed: {e}")
-#         return "Error generating content"
-
-# # Function to fetch and process locality data
-# def generate_locality_description(city: str, locality: str):
-#     st.write(f"Fetching data for {city}/{locality}...")
-#     api_url = f"https://stage-www.squareyards.com/getlocalitydatafordesc/{city}/{locality}"
-#     response = requests.get(api_url)
-
-#     if response.status_code != 200:
-#         st.error(f"API request failed with status {response.status_code}")
-#         return "Failed to fetch locality data"
-
-#     st.write("Data fetched successfully!")
-#     data = response.json()
-
-#     # # Placeholder for DataExtractor (assuming it exists in your environment)
-#     # class DataExtractor:
-#     #     def __init__(self, data): self.data = data
-#     #     def get_basic_info(self): return self.data.get("basic_info", {})
-#     #     def get_micromarket(self): return self.data.get("micromarket", {})
-#     #     def get_supply_demand(self): return self.data.get("supply_demand", {})
-#     #     def get_indices_data(self): return self.data.get("indices_data", {})
-#     #     def get_developers_data(self): return self.data.get("developers_data", {})
-#     #     def get_connecting_roads(self): return self.data.get("connecting_roads", [])
-#     #     def get_metro_stations(self): return self.data.get("metro_stations", [])
-#     #     def get_top_five_localities(self): return self.data.get("top_five_localities", [])
-#     #     def get_nearby_localities(self): return self.data.get("nearby_localities", [])
-
-#     extractor = DataExtractor(data)
-#     basic_info = extractor.get_basic_info()
-#     micromarket = extractor.get_micromarket()
-#     supply_demand_data = extractor.get_supply_demand()
-#     indices_data = extractor.get_indices_data()
-#     connecting_roads = extractor.get_connecting_roads()
-#     metro_stations = extractor.get_metro_stations()
-#     top_five_localities = extractor.get_top_five_localities()
-#     nearby_localities = extractor.get_nearby_localities()
-
-#     response_sections = []
-
-#     # 1. Overview
-#     st.write("Generating Overview...")
-#     overview_prompt = f"""
-#     Using the provided JSON data, generate a description for the "Overview" section about {locality}, {city}. 
-#     Use the following data: basic_info (for locality name), micromarket (for micromarket details), 
-#     supply_demand_data.sale.property_types (for property types like apartments, builder floors, independent houses),
-#     and top_five_localities (for proximity to key areas). Highlight its appeal as a residential hub.
-#     Format the response as follows:
-#     ### **Response Format:**
-#     <h2>[Creative Heading]</h2>  
-#     <p>[Striking opener and Location and nearby key areas (50-60 words)]</p>
-#     """
-#     overview_data = {"basic_info": basic_info, "micromarket": micromarket, "supply_demand_data": supply_demand_data, "top_five_localities": top_five_localities}
-#     # print(overview_data)
-#     response_sections.append(create_content_locality_description(overview_prompt, overview_data))
-
-#     # 2. Connectivity & Infrastructure
-#     st.write("Generating Connectivity & Infrastructure...")
-#     connectivity_prompt = f"""
-#     Using the provided JSON data, generate a description for the "Connectivity & Infrastructure" section about {locality}, {city}.
-#     Use the following data: connecting_roads, indices_data.connectivity and metro_stations.
-#     Emphasize seamless access to key areas and business hubs.
-#     Format the response as follows:
-#     ### **Response Format:**
-#     <h2>[Creative Heading]</h2>  
-#     <p>[Striking opener and Location, property options and nearby key areas using 80-100 words]</p>
-#     """
-#     connectivity_data = {"indices_data": indices_data, "connecting_roads": connecting_roads, "metro_stations": metro_stations}
-#     response_sections.append(create_content_locality_description(connectivity_prompt, connectivity_data))
-
-#     # 3. Real Estate Trends
-#     st.write("Generating Real Estate Trends...")
-#     real_estate_prompt = f"""
-#     Write a structured and insightful overview of real estate trends for {locality}, {city}.
-#     ### **Guidelines:**
-#     - Use a clear and engaging heading.
-#     - Cover key trends, including property types, price trends, BHK distribution, and buyer preferences.
-#     - Present data in a structured and easy-to-read format.
-#     - Dont write any additional line beyond the response format at the end of response
-#     ### **Response Format:**
-#     <h2>[Creative Heading]</h2>
-#     <ul>
-#         <li><strong>Property Types:</strong> [Breakdown of property supply and key offerings (25 words)]</li>
-#         <li><strong>Price Trends:</strong> [Insights into price per sq. ft. in nearby localities (25 words)]</li>
-#         <li><strong>BHK Distribution:</strong> [Popular configurations and their market share (25 words)]</li>
-#         <li><strong>Price Range:</strong> [Buyer preferences across different budget segments (25 words)]</li>
-#     </ul> 
-#     """
-#     real_estate_data = {"supply_demand_data": supply_demand_data, "nearby_localities": nearby_localities}
-#     response_sections.append(create_content_locality_description(real_estate_prompt, real_estate_data))
-
-#     # 4. Lifestyle & Amenities
-#     st.write("Generating Lifestyle & Amenities...")
-#     lifestyle_prompt = f"""
-#     Using the provided JSON data, generate a detailed and engaging "Lifestyle & Amenities" section for {locality}, {city}. 
-#     ### **Guidelines:**
-#     - Highlight premium lifestyle offerings, including top residential and commercial developments.
-#     - Use `indices_data.livability.facilities.Education` for schools.
-#     - Use `indices_data.livability.facilities.Healthcare` for hospitals.
-#     - Use `indices_data.lifestyle.facilities.Shopping` for shopping centers.
-#     - Use `indices_data.lifestyle.facilities.Entertainment` for recreational and fitness options.
-#      - Dont write any additional line beyond the response format at the end of response
-#     ### **Response Format:**
-#     <h2>[Creative Heading]</h2>
-#     <ul>
-#         <li><strong>Educational Institutions:</strong> [20 words]</li>
-#         <li><strong>Healthcare Facilities:</strong> [20 words]</li>
-#         <li><strong>Recreational & Shopping Centers:</strong> [20 words]</li>
-#         <li><strong>Green Spaces & Sports Facilities:</strong> [20 words]</li>
-#     </ul>
-#     """
-#     lifestyle_data = {"indices_data": indices_data, "connecting_roads": connecting_roads}
-#     response_sections.append(create_content_locality_description(lifestyle_prompt, lifestyle_data))
-
-#     # 5. Nearby Localities & Their Impact
-#     st.write("Generating Nearby Localities & Their Impact...")
-#     nearby_prompt = f"""
-#     Using the provided JSON data, generate a detailed and structured "Nearby Localities & Their Impact" section for {locality}, {city}. 
-#     ### **Guidelines:**
-#     - Use `nearby_localities` to extract details such as distances and `avg_price_per_sqft`.
-#     - Highlight how each locality influences {locality}, focusing on property pricing, rental demand, and luxury housing.
-#     - i just want nearby 4-5 points
-#     - Dont write any additional line beyond the response format at the end of response
-#     ### **Response Format:**
-#     <h2>[Creative Heading]</h2>
-#     <ul>
-#         <li><strong>[Nearby Locality Name] ([Distance]):</strong> [Impact on {locality}, including price trends, rental demand, and market position (25 words)]</li>
-#         <li><strong>[Nearby Locality Name] ([Distance]):</strong> [Impact on {locality}, including price trends, rental demand, and market position (25 words)]</li>
-#         <li><strong>[Nearby Locality Name] ([Distance]):</strong> [Impact on {locality}, including price trends, rental demand, and market position (25 words)]</li>
-#     </ul>
-#     """
-#     nearby_data = {"nearby_localities": top_five_localities}
-#     # print(nearby_data)
-#     response_sections.append(create_content_locality_description(nearby_prompt, nearby_data))
-
-#     # 6. Why Invest
-#     st.write("Generating Why Invest section...")
-#     investment_prompt = f"""
-#     Using the provided JSON data, generate a compelling "Why Invest in {locality}?" section for {locality}, {city}. 
-#     ### **Guidelines:**
-#     - Use `supply_demand_data.sale.property_types` to highlight the demand for builder floors and apartments.
-#     - Leverage `connecting_roads` to emphasize proximity to business hubs and its impact on rental yields.
-#     - Make logical assumptions about upcoming developments based on infrastructure growth trends.
-#     - Focus on investment potential, rental appreciation, and future property value growth.
-#      - Dont write any additional line beyond the response format at the end of response
-#     ### **Response Format:**
-#     <h2>[Creative Heading]</h2>
-#     <ul>
-#         <li><strong>Strong Demand:</strong> [Highlight high demand for specific property types and its impact on investment potential (25 words)]</li>
-#         <li><strong>Proximity to Business Hubs:</strong> [Explain connectivity advantages and their role in rental appreciation (25 words)]</li>
-#         <li><strong>Future Growth Potential:</strong> [Discuss ongoing/upcoming developments and their expected impact on property values (25 words)]</li>
-#     </ul>
-#     """
-#     investment_data = {"supply_demand_data": supply_demand_data, "connecting_roads": connecting_roads}
-#     response_sections.append(create_content_locality_description(investment_prompt, investment_data))
-
-#     # 7. People Also Ask (PAA)
-#     st.write("Generating People Also Ask section...")
-#     paa_prompt = f"""
-#     Using the provided JSON data, generate a structured "People Also Ask (PAA)" section for {locality}, {city}. 
-#     ### **Guidelines:**
-#     - Use `indices_data.connectivity` to describe connectivity and transport options.
-#     - Utilize `indices_data.livability` for insights on schools, hospitals, and amenities.
-#     - Leverage `indices_data.education` and `indices_data.health` for detailed educational and healthcare information.
-#     - Ensure answers are informative, concise, and relevant to potential homebuyers.
-#      - Dont write any additional line beyond the response format at the end of response
-#     ### **Response Format:**
-#     <h2>People Also Ask</h2>
-#     <div class="panel">
-#         <div class="panelHeader">
-#             <strong>Q: [Your Question Here]</strong>
-#             <em class="icon-arrow-down"></em>
-#         </div>
-#         <div class="panelBody">
-#             <p>[Your Answer Here]</p>
-#         </div>
-#     </div>
-#     """
-#     paa_data = {"indices_data": indices_data}
-#     response_sections.append(create_content_locality_description(paa_prompt, paa_data))
-
-#     # Combine sections
-#     final_response = "\n\n".join(response_sections).replace("\n", "")
-#     return final_response
-
-# # Streamlit UI
-# st.title("Locality Description Generator")
-# st.write("Enter the city and locality to generate a detailed description.")
-
-# # Input fields
-# city = st.text_input("City", "")
-# locality = st.text_input("Locality", "")
-
-# # Button to generate description
-# if st.button("Generate Description"):
-#     if city and locality:
-#         with st.spinner("Generating..."):
-#             result = generate_locality_description(city, locality)
-#             st.markdown(result, unsafe_allow_html=True)
-#     else:
-#         st.warning("Please enter both city and locality.")
-
-# # Footer
-# # st.write("Powered by  | Date: March 11, 2025")A
