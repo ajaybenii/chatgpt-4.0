@@ -365,7 +365,7 @@ def create_content_locality_description(prompt: str, city: str, locality: str) -
         # Preprocess city and locality for the URL
         city_lower = city.lower()
         locality_processed = locality.lower().replace(' ', '-')
-        url = f"https://stage-www.squareyards.com/getlocalitydatafordesc/{city_lower}/{locality_processed}"
+        url = f"https://www.squareyards.com/getlocalitydatafordesc/{city_lower}/{locality_processed}"
         
         # Update the prompt with the preprocessed URL
         full_query = prompt.format(locality=locality, city=city, url=url)
