@@ -22,8 +22,8 @@ gemini_client = genai.Client(
 app = FastAPI()
 
 # # Pydantic model for request body
-# class ListingDescriptionRequest(BaseModel):
-#     metadata: dict
+class ListingDescriptionRequest(BaseModel):
+    listing_data: dict | str | list
 
 # Listing Description Format Function
 def create_content_listing_description_format():
@@ -36,7 +36,7 @@ def create_content_listing_description_format():
     return random.choice(font_list)
 
 # Listing Description Function
-def create_content_listing_description(metadata: str) -> str:
+def create_content_listing_description(Listing_data:dict | str | list) -> str:
     prompt = """
     You are a specialized assistant designed to generate concise and appealing property listing descriptions for real estate. Based on the provided property metadata:
 
@@ -57,7 +57,7 @@ def create_content_listing_description(metadata: str) -> str:
     Generate a property listing description based on the following metadata: {metadata}
     """
     try:
-        full_query = prompt.format(metadata=metadata, select_font=create_content_listing_description_format())
+        full_query = prompt.format(metadata=Listing_data, select_font=create_content_listing_description_format())
         response = gemini_client.models.generate_content(
             model="gemini-2.0-flash-001",
             contents=full_query,
@@ -69,7 +69,7 @@ def create_content_listing_description(metadata: str) -> str:
         )
         content = response.text
         # print(content)
-        content = content.replace("```html", "").replace("```", "").replace("-", " ").replace("*", "").replace("`", "").replace("\<p>", "<p>").replace("\</p>", "</p>").replace("\<ul>", "<ul>").replace("\</ul>", "</ul>").replace("\n","").replace("  ","")
+        content = content.replace("```html", "").replace("```", "").replace("-", " ").replace("*", "").replace("`", "").replace("\<p>", "<p>").replace("\</p>", "</p>").replace("\<ul>", "<ul>").replace("\</ul>", "</ul>").replace("\n","")
         # print(content)
         return content
     except Exception as e:
@@ -77,7 +77,7 @@ def create_content_listing_description(metadata: str) -> str:
 
 # FastAPI endpoint for listing description
 @app.post("/listing-description")
-async def generate_listing_description(request: str):
+async def generate_listing_description(request: ListingDescriptionRequest):
 
     description = create_content_listing_description(request)    
     return {"description": description}
