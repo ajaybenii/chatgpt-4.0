@@ -34,7 +34,7 @@ previous_descriptions = deque(maxlen=3)
 class ListingDescriptionRequest(BaseModel):
     listing_data: dict | str | list
 
-# Listing Description Prompt (must be defined externally or replaced with your actual prompt)
+# Listing Description Prompt (placeholder, replace with your actual prompt if different)
 Listing_description_prompt = """
 Role:
 You are an expert content writer specializing in real estate descriptions for a diverse audience.
@@ -45,15 +45,13 @@ Craft a compelling, informative, and unique real estate description based on the
 Instructions:
 1. Use all provided data accurately. Do not omit or alter factual details such as price, size, or amenities.
 2. Format prices as '50 lakh,' '3.20 crore,' or '25 thousand' without currency prefixes like 'INR' or 'Rs.'.
-3. Do not mention any real estate organization names, project names, or specific locations (e.g., 'Fort Oasis', 'MG Road', neighborhoods, cities, or landmarks like 'nearby schools'). Use generic terms like 'this apartment,' 'this shop,' or 'this home'.
-4. Write in a natural, conversational tone with simple, beginner-level language. Avoid fancy or repetitive words like 'harmonious,' 'serene,' 'tranquil,' 'blend,' 'oasis,' 'vibrant,' 'opportunity,' 'well-being,' 'prime,' or 'bustling.'
-5. The description must be a single flowing paragraph.
-6. Ensure the first sentence is unique for each listing. Avoid phrases like 'Step into...', 'Discover...', 'Imagine...', 'Envision...', 'Nestled in...', or 'In the heart of...'. Use varied themes (e.g., lifestyle, investment potential, comfort) and sentence structures (e.g., questions, statements).
-7. Ensure the last sentence is distinct and natural, avoiding terms like 'opportunity,' 'soughtafter,' or 'don’t miss out.' Conclude with a call to action or emotional hook aligned with the property’s appeal.
-8. To maximize variety, alternate emotional appeals (e.g., excitement, calm, ambition) and focus areas (e.g., amenities, investment value) across listings.
-9. If provided with previous descriptions, ensure the new description’s first and last sentences use entirely different phrasing and themes.
-10. Highlight lifestyle benefits (e.g., spacious living, modern design, natural light) and exclude null or irrelevant details.
-11. Return only the paragraph without any introductory text, suggestions, notes, or additional commentary.
+3. Do not mention any real estate organization names and avoid fancy words, i want description in simple language.
+4. Write in a natural, conversational tone that appeals to the target audience’s aspirations (e.g., comfort for home buyers, ROI for investors, convenience for tenants).
+5. The description should be a single flowing paragraph of 200–300 words, without headings, bullet points, or numbered lists.
+6. Ensure the opening sentence is unique for each listing. Avoid repetitive phrases like 'Step into...', 'Discover...', 'Imagine...', 'Nestled in...', or 'In the heart of...'. Instead, use varied themes (e.g., lifestyle, investment potential, community, or tranquility) and sentence structures (e.g., questions, bold statements, or vivid imagery).
+7. Ensure the closing sentence feels distinct and natural, avoiding overused terms like 'opportunity,' 'soughtafter,' or 'don’t miss out.' Conclude with a call to action or an emotional hook that aligns with the property’s unique appeal (e.g., envisioning a future, seizing potential, or embracing a lifestyle).
+8. To maximize variety, alternate emotional appeals (e.g., excitement, serenity, ambition) and focus areas (e.g., location, amenities, investment value) across listings.
+9. If provided with previous descriptions, analyze their opening and closing lines to ensure the new description uses entirely different phrasing and themes.
 """
 
 def format_description(description):
@@ -95,13 +93,12 @@ def format_description(description):
 
 def create_listing_description(content):
     """Generates a real estate description using Gemini with past output awareness."""
-    max_attempts = 3
     banned_phrases = [
         "step into", "discover", "imagine", "nestled in", "in the heart of",
         "exceptional opportunity", "soughtafter", "dont miss out"
     ]
 
-    for attempt in range(max_attempts):
+    while True:
         try:
             content = jsonable_encoder(content)
 
@@ -114,7 +111,7 @@ def create_listing_description(content):
 
             # Prepare prompt for Gemini
             full_query = f"{Listing_description_prompt}\n\n{context_message}\nNow write a new description for the following listing:\n{content}"
-
+            print(full_query)
             # Call Gemini API
             response = gemini_client.models.generate_content(
                 model="gemini-2.0-flash-001",
@@ -122,7 +119,7 @@ def create_listing_description(content):
                 config=types.GenerateContentConfig(
                     max_output_tokens=2048,
                     system_instruction="You are a helpful real-estate agent. Return only a single paragraph, using simple, natural, realistic language. Do not include suggestions, notes, or additional commentary.",
-                    temperature=0.9,  # Match OpenAI's temperature
+                    temperature=0.9
                 )
             )
 
@@ -131,36 +128,22 @@ def create_listing_description(content):
 
             structured = format_description(description)
 
-            # Validate for banned phrases
-            first_para = structured['first_paragraph'].lower()
-            last_para = structured['last_paragraph'].lower()
-            if any(phrase in first_para or phrase in last_para for phrase in banned_phrases):
-                if attempt < max_attempts - 1:
-                    continue
-                raise Exception("Generated description contains banned phrases after max attempts")
+            # # Validate for banned phrases
+            # first_para = structured['first_paragraph'].lower()
+            # last_para = structured['last_paragraph'].lower()
+            # if any(phrase in first_para or phrase in last_para for phrase in banned_phrases):
+            #     logging.warning(f"Contains banned phrases in first or last paragraph: {first_para[:50]}... or {last_para[:50]}...")
+            #     continue
 
-            # Check similarity with previous openings/closings
-            for prev_desc in previous_descriptions:
-                prev_structured = format_description(prev_desc)
-                prev_first = prev_structured['first_paragraph'].lower()
-                prev_last = prev_structured['last_paragraph'].lower()
-                logging.info(f"Opening similarity with prev: {SequenceMatcher(None, first_para, prev_first).ratio()}")
-                logging.info(f"Closing similarity with prev: {SequenceMatcher(None, last_para, prev_last).ratio()}")
-                if SequenceMatcher(None, first_para, prev_first).ratio() > 0.6 or \
-                   SequenceMatcher(None, last_para, prev_last).ratio() > 0.6:
-                    if attempt < max_attempts - 1:
-                        continue
-                    raise Exception("Generated description too similar to previous after max attempts")
-
+   
             # Save for context
             previous_descriptions.append(description)
 
             return structured
 
         except Exception as e:
-            logging.error(f"Attempt {attempt + 1} failed: {str(e)}")
-            if attempt == max_attempts - 1:
-                raise Exception(f"Error in description completion after {max_attempts} attempts: {str(e)}")
+            logging.error(f"Attempt failed: {str(e)}")
+            continue
 
 # FastAPI endpoint for listing description
 @app.post("/listing-description")
