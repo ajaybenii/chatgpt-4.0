@@ -11,7 +11,7 @@ from difflib import SequenceMatcher
 import logging
 
 # Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+# logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Load environment variables
 load_dotenv()
@@ -28,7 +28,7 @@ gemini_client = genai.Client(
 app = FastAPI()
 
 # Store the last 3 descriptions
-previous_descriptions = deque(maxlen=3)
+previous_descriptions = deque(maxlen=4)
 
 # Pydantic model for request body
 class ListingDescriptionRequest(BaseModel):
@@ -40,7 +40,7 @@ Role:
 You are an expert content writer specializing in real estate descriptions for a diverse audience.
 
 Objective:
-Craft a compelling, informative, and unique real estate description based on the provided data. The description should feel fresh, engaging, and tailored to the property type and target audience (home buyers, tenants, or investors).
+Craft a compelling, informative, real estate description based on the provided data. The description should feel fresh, engaging, and tailored to the property type and target audience (home buyers, tenants, or investors).
 
 Instructions:
 1. Use all provided data accurately. Do not omit or alter factual details such as price, size, or amenities.
@@ -95,55 +95,55 @@ def create_listing_description(content):
     """Generates a real estate description using Gemini with past output awareness."""
     banned_phrases = [
         "step into", "discover", "imagine", "nestled in", "in the heart of",
-        "exceptional opportunity", "soughtafter", "dont miss out"
+        "exceptional opportunity", "soughtafter", "dont miss out","Envision "
     ]
 
-    while True:
-        try:
-            content = jsonable_encoder(content)
+# while True:
+    try:
+        content = jsonable_encoder(content)
 
-            context_message = ""
-            if previous_descriptions:
-                context_message = "These are the opening and closing lines of the last 3 descriptions. Ensure the new description’s opening and closing lines are entirely different in phrasing and theme:\n"
-                for i, desc in enumerate(previous_descriptions, 1):
-                    structured = format_description(desc)
-                    context_message += f"Description {i}:\nOpening: {structured['first_paragraph']}\nClosing: {structured['last_paragraph']}\n\n"
+        context_message = ""
+        if previous_descriptions:
+            context_message = f"These are are banned phrases {banned_phrases} .These are the opening and closing lines of the last 3 descriptions. Ensure the new description’s opening and closing lines are entirely different in phrasing and theme:\n"
+            for i, desc in enumerate(previous_descriptions, 1):
+                structured = format_description(desc)
+                context_message += f"Description {i}:\nOpening: {structured['first_paragraph']}\nClosing: {structured['last_paragraph']}\n\n"
 
-            # Prepare prompt for Gemini
-            full_query = f"{Listing_description_prompt}\n\n{context_message}\nNow write a new description for the following listing:\n{content}"
-            print(full_query)
-            # Call Gemini API
-            response = gemini_client.models.generate_content(
-                model="gemini-2.0-flash-001",
-                contents=full_query,
-                config=types.GenerateContentConfig(
-                    max_output_tokens=2048,
-                    system_instruction="You are a helpful real-estate agent. Return only a single paragraph, using simple, natural, realistic language. Do not include suggestions, notes, or additional commentary.",
-                    temperature=0.9
-                )
+        # Prepare prompt for Gemini
+        full_query = f"{Listing_description_prompt}\n\n{context_message}\nNow write a new description for the following listing:\n{content}"
+        # print(full_query)
+        # Call Gemini API
+        response = gemini_client.models.generate_content(
+            model="gemini-2.0-flash-001",
+            contents=full_query,
+            config=types.GenerateContentConfig(
+                max_output_tokens=500,
+                system_instruction="You are a helpful real-estate agent. Return only a single paragraph, using simple, natural, realistic language. Do not include suggestions, notes, or additional commentary.",
+                temperature=0.9
             )
+        )
 
-            description = response.text.strip()
-            description = re.sub(r"[\([{})\]]", "", description)
+        description = response.text.strip()
+        description = re.sub(r"[\([{})\]]", "", description)
 
-            structured = format_description(description)
+        structured = format_description(description)
 
-            # # Validate for banned phrases
-            # first_para = structured['first_paragraph'].lower()
-            # last_para = structured['last_paragraph'].lower()
-            # if any(phrase in first_para or phrase in last_para for phrase in banned_phrases):
-            #     logging.warning(f"Contains banned phrases in first or last paragraph: {first_para[:50]}... or {last_para[:50]}...")
-            #     continue
+        # # Validate for banned phrases
+        # first_para = structured['first_paragraph'].lower()
+        # last_para = structured['last_paragraph'].lower()
+        # if any(phrase in first_para or phrase in last_para for phrase in banned_phrases):
+        #     logging.warning(f"Contains banned phrases in first or last paragraph: {first_para[:50]}... or {last_para[:50]}...")
+        #     continue
 
-   
-            # Save for context
-            previous_descriptions.append(description)
 
-            return structured
+        # Save for context
+        previous_descriptions.append(description)
 
-        except Exception as e:
-            logging.error(f"Attempt failed: {str(e)}")
-            continue
+        return structured
+
+    except Exception as e:
+        logging.error(f"Attempt failed: {str(e)}")
+        # continue
 
 # FastAPI endpoint for listing description
 @app.post("/listing-description")
