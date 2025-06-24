@@ -114,7 +114,7 @@ def create_listing_description(content):
         # print(full_query)
         # Call Gemini API
         response = gemini_client.models.generate_content(
-            model="gemini-2.0-flash-001",
+            model="gemini-2.5-flash",
             contents=full_query,
             config=types.GenerateContentConfig(
                 max_output_tokens=500,
